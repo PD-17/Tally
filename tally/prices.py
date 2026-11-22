@@ -23,6 +23,7 @@ class PriceBook:
     person_enrich_record: float = 1.0  # base only: contact fields cost more and are never asked for
     web_search_page: float = 1.0
     web_fetch_url: float = 1.0
+    job_search_result: float = 0.03
 
     def person_search(self, limit: int) -> float:
         return limit * (self.person_search_result + 2 * self.person_search_premium)
@@ -30,6 +31,14 @@ class PriceBook:
     def company_search(self, limit: int, premium_groups: list[str]) -> float:
         premium = sum(self.company_search_premium.get(g, 0.2) for g in premium_groups)
         return limit * (self.company_search_result + 2 * premium)
+
+    def company_fields(self, limit: int, returned_groups: list[str]) -> float:
+        """A company search filtered on plain fields that returns premium groups: each charged once."""
+        return limit * (self.company_search_result + sum(self.company_search_premium.get(g, 0.2)
+                                                         for g in returned_groups))
+
+    def job_search(self, limit: int) -> float:
+        return limit * self.job_search_result
 
     def identify(self, identifiers: int) -> float:
         return identifiers * self.identify_match
@@ -67,3 +76,4 @@ class PriceBook:
         self.company_enrich_record = higher("/company/enrich", self.company_enrich_record)
         self.person_enrich_record = higher("/person/enrich", self.person_enrich_record)
         self.web_search_page = higher("/web/search/live", self.web_search_page)
+        self.job_search_result = higher("/job/search", self.job_search_result)

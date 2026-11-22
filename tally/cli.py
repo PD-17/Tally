@@ -26,6 +26,22 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--mode", choices=["live", "record", "replay", "fake"], help="overrides TALLY_MODE")
     run.add_argument("--out", type=Path, help="write the report here (.md) and the receipts beside it (.json)")
 
+    deck = commands.add_parser("diligence", help="check a pitch deck's claims and write the memo")
+    deck.add_argument("deck", type=Path, help="the deck: a PDF, or a text file with '---' between pages")
+    deck.add_argument("--founders", default="", help='the founders\' names, comma separated: "Asha Rao, Vik Mehta"')
+    deck.add_argument("--domain", help="the company's domain, if the partner knows it")
+    deck.add_argument("--budget", type=float, default=150, help="credit limit for this memo (default 150)")
+    deck.add_argument("--minutes", type=float, default=8, help="time limit (default 8)")
+    deck.add_argument("--run-id", help="resume this memo (everything already bought is free)")
+    deck.add_argument("--mode", choices=["live", "record", "replay", "fake"], help="overrides TALLY_MODE")
+    deck.add_argument("--out", type=Path, help="write the memo here (.md) and the receipts beside it (.json)")
+
+    evaluate = commands.add_parser("diligence-eval", help="score memos against a sealed answer file")
+    evaluate.add_argument("answers", type=Path, help="sealed/answers.json")
+    evaluate.add_argument("--budget", type=float, default=150)
+    evaluate.add_argument("--minutes", type=float, default=8)
+    evaluate.add_argument("--mode", choices=["live", "record", "replay", "fake"], help="overrides TALLY_MODE")
+
     serve = commands.add_parser("serve", help="open the desk and phone dial at http://localhost:8000")
     serve.add_argument("--mode", choices=["live", "record", "replay", "fake"], help="overrides TALLY_MODE")
     serve.add_argument("--port", type=int, default=8000)
@@ -55,6 +71,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "run":
         return asyncio.run(_run(args, settings))
+    if args.command == "diligence":
+        return asyncio.run(_diligence(args, settings))
+    if args.command == "diligence-eval":
+        from tally.diligence.evaluate import evaluate
+
+        return asyncio.run(evaluate(settings, args.answers, args.budget, args.minutes))
     if args.command == "wallet":
         from tally.wallet_mcp import serve
 
@@ -101,6 +123,34 @@ async def _run(args, settings) -> int:
                     "rows": [receipt(a, job.ledger) for a in result.answers]}
         args.out.with_suffix(".json").write_text(json.dumps(receipts, indent=2), encoding="utf-8")
     print(f"run id: {result.run_id}  (resume with --run-id {result.run_id})", file=sys.stderr)
+    return 0
+
+
+def _show(kind: str, data: dict) -> None:
+    if kind == "note":
+        print(f"  - {data['text']}", file=sys.stderr)
+    elif kind == "settled":
+        print(f"    paid {data['credits']:.2f} for {data['endpoint']} "
+              f"(spent {data['spent']:.2f} of {data['limit']:.2f})", file=sys.stderr)
+
+
+async def _diligence(args, settings) -> int:
+    from tally.diligence.deck import load_deck
+    from tally.diligence.memo import as_dict, as_markdown
+    from tally.diligence.run import DiligenceRun
+
+    founders = [f.strip() for f in args.founders.split(",") if f.strip()]
+    deck = load_deck(args.deck) if args.deck.exists() else None
+    job = DiligenceRun(settings, deck, args.budget, args.minutes, founders=founders, domain=args.domain,
+                       run_id=args.run_id, on_event=_show)
+    memo = await job.execute()
+    text = as_markdown(memo, job.ledger, settings)
+    print(text)
+    if args.out:
+        args.out.write_text(text, encoding="utf-8")
+        args.out.with_suffix(".json").write_text(json.dumps(as_dict(memo, job.ledger, settings), indent=2,
+                                                            default=str), encoding="utf-8")
+    print(f"run id: {memo.run_id}  (resume with --run-id {memo.run_id})", file=sys.stderr)
     return 0
 
 

@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Literal
 
-Kind = Literal["crustdata", "model", "payment"]
+Kind = Literal["crustdata", "model", "payment", "message"]
 Event = Literal["reserved", "settled", "failed", "in_doubt", "resolved", "cached"]
 
 GENESIS_HASH = "0" * 64
@@ -234,6 +234,11 @@ class Ledger:
         """A payment made in a payment provider's test mode (a vendor buy, a top-up)."""
         self._append(run_id=run_id, call_key=key, kind="payment", event="settled", credits=0.0,
                      cost_inr=amount_inr, request_id=request_id, note=note)
+
+    def record_message(self, run_id: str, key: str, decision: str, note: str) -> None:
+        """A person's decision on outgoing words (the founders' questions), bound to their exact text."""
+        self._append(run_id=run_id, call_key=f"{key}:{time.time_ns()}", kind="message", event="settled",
+                     reason=decision, credits=0.0, note=note)
 
     # ----- reading ----------------------------------------------------------
 
