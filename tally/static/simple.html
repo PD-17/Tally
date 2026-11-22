@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diligence Desk</title>
+<style>
+:root {
+  --bg: #f6f5f1; --card: #ffffff; --ink: #1c1b19; --muted: #6b6860; --line: #e4e1d9; --accent: #2f5d50;
+  --bad: #b3261e; --warn: #9a6400; --info: #3b5a9a; --ok: #2e7d4f; --soft: #f0eee8;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141413; --card: #1d1c1a; --ink: #ecebe6; --muted: #a09d94; --line: #33312d; --accent: #7fb8a4;
+  --bad: #f28b82; --warn: #e5b45a; --info: #93b0ec; --ok: #6fcf97; --soft: #26251f; } }
+:root[data-theme="dark"] {
+  --bg: #141413; --card: #1d1c1a; --ink: #ecebe6; --muted: #a09d94; --line: #33312d; --accent: #7fb8a4;
+  --bad: #f28b82; --warn: #e5b45a; --info: #93b0ec; --ok: #6fcf97; --soft: #26251f; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 28px 16px 64px; }
+h1 { font-size: 24px; margin: 0; }
+.sub { color: var(--muted); margin: 4px 0 22px; }
+.banner { display: none; background: var(--warn); color: #fff; padding: 6px 12px; border-radius: 8px; margin-bottom: 14px; font-size: 14px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+.hidden { display: none !important; }
+.drop { display: block; border: 2px dashed var(--line); border-radius: 10px; padding: 26px; text-align: center; cursor: pointer; color: var(--muted); }
+.drop:hover, .drop.has { border-color: var(--accent); color: var(--ink); }
+.drop input { display: none; }
+.fields { display: grid; grid-template-columns: 1fr 120px; gap: 12px; margin: 14px 0; }
+@media (max-width: 520px) { .fields { grid-template-columns: 1fr; } }
+label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+input[type=text], input[type=number] { font: inherit; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); width: 100%; }
+button { font: inherit; padding: 10px 18px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--card); cursor: pointer; }
+button.ghost { background: transparent; color: var(--accent); }
+button.stop { background: transparent; color: var(--bad); border-color: var(--bad); }
+button:disabled { opacity: .5; cursor: default; }
+.muted { color: var(--muted); font-size: 14px; }
+.big { font-size: 18px; margin: 0 0 14px; }
+.bar { height: 8px; background: var(--soft); border-radius: 4px; overflow: hidden; margin: 10px 0 6px; }
+.bar div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 6px 0 16px; }
+@media (max-width: 520px) { .counts { grid-template-columns: repeat(2, 1fr); } }
+.count { background: var(--soft); border-radius: 10px; padding: 10px; text-align: center; }
+.count b { display: block; font-size: 24px; }
+.count span { font-size: 13px; color: var(--muted); }
+.flag { border-left: 4px solid var(--bad); background: var(--soft); padding: 8px 12px; border-radius: 6px; margin: 8px 0; font-size: 14px; }
+.claim { border-top: 1px solid var(--line); padding: 12px 0; }
+.claim:first-child { border-top: 0; }
+.claim p { margin: 3px 0; }
+.claim .src { font-size: 13px; color: var(--muted); }
+.tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; background: var(--soft); margin-right: 6px; }
+.t-contradicted { color: var(--bad); } .t-records_disagree { color: var(--warn); } .t-cant_verify { color: var(--info); }
+.t-confirmed { color: var(--ok); } .t-not_checked, .t-held { color: var(--muted); }
+h2 { font-size: 16px; margin: 22px 0 8px; }
+ol { padding-left: 20px; margin: 6px 0 12px; } ol li { margin-bottom: 6px; }
+.comp { font-size: 14px; padding: 4px 0; }
+.ask { border: 1px solid var(--warn); border-radius: 10px; padding: 12px; margin: 10px 0; }
+.err { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Diligence Desk</h1>
+  <p class="sub">Upload a pitch deck. Every claim is checked against outside records, within your budget.</p>
+  <div class="banner" id="banner"></div>
+
+  <section class="card" id="step1">
+    <label class="drop" id="drop">
+      <input id="file" type="file" accept=".pdf,.txt,.md">
+      <span id="fileLabel">Choose a pitch deck (PDF)</span>
+    </label>
+    <div class="fields">
+      <label>Founders' names, comma separated<input id="founders" type="text" placeholder="Asha Rao, Vik Mehta"></label>
+      <label>Budget (credits)<input id="budget" type="number" value="150" min="1"></label>
+    </div>
+    <button id="go" disabled>Get a quote</button>
+    <p class="err" id="err"></p>
+  </section>
+
+  <section class="card hidden" id="step2">
+    <p class="big" id="headline">Reading the deck…</p>
+    <div class="row hidden" id="acceptRow">
+      <button id="accept">Check the claims</button>
+      <span class="muted" id="acceptNote"></span>
+    </div>
+    <div class="hidden" id="progress">
+      <div class="bar"><div id="bar"></div></div>
+      <div class="row"><span class="muted" id="spent">Starting…</span><button class="stop" id="stop">Stop</button></div>
+    </div>
+    <div id="asks"></div>
+  </section>
+
+  <section class="card hidden" id="step3">
+    <p class="big" id="company"></p>
+    <div class="counts" id="counts"></div>
+    <div id="flags"></div>
+    <div id="claims"></div>
+
+    <h2>Questions for the founders</h2>
+    <ol id="questions"></ol>
+    <div class="row" id="qrow">
+      <button id="qyes">Approve questions</button><button class="ghost" id="qno">Don't send</button>
+      <span class="muted" id="qstate">Nothing reaches the founders until you approve.</span>
+    </div>
+
+    <h2>Comparable companies</h2>
+    <div id="comps"></div>
+    <p class="muted" id="footer"></p>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const post = (path, body) => fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const LABEL = { contradicted: "Contradicted", records_disagree: "Records disagree", cant_verify: "Can't verify",
+                confirmed: "Confirmed", held: "Held", not_checked: "Not checked" };
+const ORDER = ["contradicted", "records_disagree", "cant_verify", "confirmed", "held", "not_checked"];
+let runId = null, memo = null, source = null;
+
+fetch("/api/info").then((r) => r.json()).then((info) => {
+  const text = { fake: "Made-up offline data, for testing only.", replay: "Replay: saved responses, not live data." }[info.mode];
+  if (text) { $("banner").textContent = text; $("banner").style.display = "block"; }
+});
+
+// ----- 1: the deck -----
+$("file").onchange = () => {
+  const file = $("file").files[0];
+  $("fileLabel").textContent = file ? file.name : "Choose a pitch deck (PDF)";
+  $("drop").classList.toggle("has", !!file);
+  $("go").disabled = !file;
+};
+
+$("go").onclick = async () => {
+  const file = $("file").files[0];
+  $("go").disabled = true; $("err").textContent = "";
+  const b64 = await new Promise((done) => { const r = new FileReader(); r.onload = () => done(r.result.split(",")[1]); r.readAsDataURL(file); });
+  const res = await post("/api/memos", { deck_b64: b64, filename: file.name, budget: +$("budget").value || 150,
+    founders: $("founders").value.split(",").map((s) => s.trim()).filter(Boolean) });
+  if (!res.ok) { $("err").textContent = "Couldn't start: " + (await res.text()); $("go").disabled = false; return; }
+  runId = (await res.json()).run_id;
+  $("step2").classList.remove("hidden");
+  listen();
+};
+
+// ----- 2: quote, approval, progress -----
+function listen() {
+  source = new EventSource(`/api/events?run_id=${encodeURIComponent(runId)}`);
+  source.onmessage = (m) => {
+    const e = JSON.parse(m.data);
+    if (e.run_id !== runId) return;
+    if (e.kind === "quote") {
+      $("headline").textContent = e.headline;
+      $("acceptNote").textContent = `Approves spending up to ${+$("budget").value || 150} credits.`;
+      $("acceptRow").classList.remove("hidden");
+    }
+    if (e.kind === "settled") {
+      $("bar").style.width = `${Math.min(100, 100 * e.spent / e.limit)}%`;
+      $("spent").textContent = `Spent ${e.spent.toFixed(2)} of ${e.limit.toFixed(2)} credits`;
+    }
+    if (e.kind === "approval") ask(e);
+    if (e.kind === "error") $("err").textContent = e.error;
+    if (e.kind === "done") { $("stop").disabled = true; setTimeout(loadMemo, 300); }
+  };
+}
+
+$("accept").onclick = () => {
+  post(`/api/jobs/${runId}/accept`);
+  $("acceptRow").classList.add("hidden");
+  $("progress").classList.remove("hidden");
+};
+$("stop").onclick = () => { post(`/api/jobs/${runId}/kill`); $("stop").disabled = true; $("spent").textContent += " · stopping"; };
+
+function ask(e) {  // a single large purchase waits for a person
+  const box = document.createElement("div");
+  box.className = "ask";
+  box.innerHTML = `<p>${esc(e.reason)}: up to ${e.credits.toFixed(2)} credits. Allow it?</p>`;
+  const yes = document.createElement("button"), no = document.createElement("button");
+  yes.textContent = "Allow"; no.textContent = "Don't"; no.className = "ghost";
+  const answer = (approve) => post(`/api/jobs/${runId}/approvals/${e.binding}`, { approve }).finally(() => box.remove());
+  yes.onclick = () => answer(true); no.onclick = () => answer(false);
+  const row = document.createElement("div"); row.className = "row"; row.append(yes, no); box.append(row);
+  $("asks").append(box);
+}
+
+// ----- 3: the memo -----
+async function loadMemo() {
+  const res = await fetch(`/api/memos/${runId}`);
+  if (!res.ok) { setTimeout(loadMemo, 700); return; }
+  memo = await res.json();
+  const b = memo.bill, v = b.verdicts;
+  $("step3").classList.remove("hidden");
+  $("company").textContent = `${memo.company}: ${b.claims} claims checked`;
+  $("counts").innerHTML = ["contradicted", "records_disagree", "cant_verify", "confirmed"].map((k) =>
+    `<div class="count"><b class="t-${k}">${v[k] || 0}</b><span>${LABEL[k]}</span></div>`).join("");
+  $("flags").innerHTML = (memo.domain_flag ? `<div class="flag"><b>Domain warning.</b> ${esc(memo.domain_flag)}</div>` : "")
+    + memo.instructions_ignored.map((t) => `<div class="flag"><b>Hidden instruction in the deck, ignored:</b> "${esc(t)}"</div>`).join("");
+
+  const claims = [...memo.claims].sort((a, c) => ORDER.indexOf(a.verdict) - ORDER.indexOf(c.verdict));
+  $("claims").innerHTML = claims.map((c) => `<div class="claim">
+      <p><span class="tag t-${c.verdict}">${LABEL[c.verdict]}${c.provisional && c.verdict === "contradicted" ? " (provisional)" : ""}</span>${esc(c.claim)} <span class="muted">· page ${c.page}</span></p>
+      <p>${esc(c.reason)}</p>
+      ${c.sources.map((s) => `<p class="src">${esc(s.field)}: ${esc(s.says)} (${esc((s.dated || "undated").slice(0, 10))})</p>`).join("")}
+    </div>`).join("");
+
+  $("questions").innerHTML = memo.questions.map((q) => `<li>${esc(q)}</li>`).join("") || "<li class='muted'>No questions.</li>";
+  const decided = memo.questions_decision;
+  if (decided) $("qstate").textContent = `Questions ${decided}.`;
+  $("qyes").disabled = $("qno").disabled = !!decided || !memo.questions.length;
+
+  const money = (u) => u == null ? "funding not on record" : u >= 1e6 ? `$${(u / 1e6).toFixed(1)}M raised` : `$${Math.round(u / 1e3)}K raised`;
+  $("comps").innerHTML = memo.comparables.map((c) => `<div class="comp"><b>${esc(c.name)}</b>
+      <span class="muted">· ${c.headcount ?? "?"} people · ${money(c.funding_total_usd)}${c.record_date ? ` · record ${esc(c.record_date)}` : ""}</span></div>`).join("")
+    || "<p class='muted'>None at this budget.</p>";
+
+  const a = memo.audit;
+  $("footer").textContent = `Spent ${b.credits.toFixed(2)} credits${b.total_inr != null ? ` (₹${b.total_inr.toFixed(2)} with model calls)` : ""}.`
+    + (a && a.matches != null ? ` Ledger ${a.matches ? "matches" : "does NOT match"} the Crustdata balance.` : "")
+    + ` Stopped because: ${b.stopped_because}.`;
+}
+
+const decide = async (approve) => {
+  const res = await post(`/api/memos/${runId}/questions`, { binding: memo.questions_binding, approve });
+  $("qstate").textContent = res.ok ? (approve ? "Approved: added to the team's outbox." : "Not sent.") : "Couldn't record that: " + (await res.text());
+  $("qyes").disabled = $("qno").disabled = true;
+};
+$("qyes").onclick = () => decide(true);
+$("qno").onclick = () => decide(false);
+</script>
+</body>
+</html>

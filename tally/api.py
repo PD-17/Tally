@@ -166,6 +166,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def desk_page():
         return FileResponse(STATIC / "memo.html")
 
+    @app.get("/simple")
+    async def simple_page():
+        """A plainer screen: upload, quote, check, memo. The same API and the same approvals."""
+        return FileResponse(STATIC / "simple.html")
+
     @app.post("/api/memos")
     async def start_memo(request: MemoRequest):
         run = desk.make_memo(request)
