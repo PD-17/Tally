@@ -11,3 +11,6 @@ __pycache__/
 # Run state (each run writes its own ledger and saved responses)
 data/
 .ruff_cache/
+
+# Sealed test set: only sealed.sha256 is committed
+sealed/
