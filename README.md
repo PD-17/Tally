@@ -10,7 +10,7 @@ Research operations teams buy the data a client's job needs, inside the client's
 
 Tally does that job the way a good research firm does:
 
-1. **Quote.** It does the job properly for 5 pilot companies, then forecasts the rest by resampling what those really cost. The client sees, before most of the money is spent:
+1. **Quote.** It lists a sample of the companies and does up to 5 properly, then forecasts the rest by resampling what those really cost. "Get a quote" spends at most 20% of the budget, and the button says how much before it is clicked. The client sees, before most of the money is spent:
    - credits needed (typical and high end)
    - expected answers at their budget
    - a coverage curve ("what more budget buys")
@@ -44,7 +44,7 @@ What comes back for each company is never a guess. The statuses are:
 |---|---|
 | 1. Decisions on live data | Every answer comes from live Crustdata calls. `fake` mode (made-up data) is for tests only and shows a banner; `replay` mode is demo insurance and shows a REPLAY banner. |
 | 2. A source for every claim | `Source` records the field or passage, the profile or page URL and the record's date (`tally/models.py`). "Can't verify" names what was checked. |
-| 3. A person approves anything you can't take back | Setting the budget approves data purchases inside it. One purchase above a quarter of the budget waits for Approve on the desk or the phone, bound to `sha256(call + amount)` (`tally/wallet.py`). Tally sends no messages and makes no payments. |
+| 3. A person approves anything you can't take back | "Get a quote" spends at most 20% of the budget, shown on the button before the click; listing the rest and everything else wait for Accept, which states the total it approves (twice the budget when racing the naive buyer). After that, one purchase above a quarter of the budget and above 20 credits waits for Approve on the desk or the phone, bound to `sha256(call + amount)` (`tally/wallet.py`). Tally sends no messages and makes no payments. |
 | 4. A ceiling on every run | A credit limit and a time limit, enforced in code before every purchase. The ledger records every Crustdata call and every model call with its tokens and rupee cost (`tally/ledger.py`). |
 | 5. Through a crash or a timeout | Each purchase is written `reserved` before the request and `settled` after. On restart, open calls become `in_doubt` and are resolved from Crustdata's usage records (`tally/recovery.py`). Re-running the same run id gets every past purchase back from the ledger for free. |
 
@@ -124,7 +124,7 @@ flowchart LR
 | Person Enrich (`/person/enrich`, no contact fields) | re-reading one person's record | 1 |
 | Usage records, balance, endpoint list (`/account/...`) | reconciliation and the balance check | free |
 
-**Where a person approves:** accepting the quote (the budget), and any single purchase over a quarter of it.
+**Where a person approves:** "Get a quote" (up to 20% of the budget, shown on the button), Accept (up to the budget, or twice it with the race, shown beside the button), and any single purchase over a quarter of the budget and over 20 credits.
 
 **The ledger:** every call, with its cost and request id. See `uv run tally ledger <run id>` or the audit screen.
 

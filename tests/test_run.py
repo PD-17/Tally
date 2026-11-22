@@ -6,7 +6,7 @@ import pytest
 
 from tally.intake import read_job_with_rules
 from tally.models import Status
-from tally.runner import Run
+from tally.runner import Run, quote_cap
 from tally.verifier import TitleVerdict, judge_title
 
 TODAY = date(2026, 11, 22)
@@ -132,3 +132,27 @@ async def test_the_vendors_stale_list_is_caught_from_our_own_receipts(settings, 
     assert list(verdicts.values()).count("wrong person") == 2  # the two records it mixed up
     assert audit.accuracy < 0.9 and not audit.decision.startswith("recommend")
     assert fake.credits_spent == spent  # checking the sample cost nothing
+
+
+async def test_the_quote_spends_only_its_capped_sample_and_the_rest_waits_for_accept(settings, fake, ledger):
+    budget = 15.0
+    run = Run(settings, JOB, budget, minutes=20, transport=fake.transport(), today=TODAY, ledger=ledger)
+    quote = await run.quote()
+    spent_on_quote = ledger.credits_charged(run.run_id)
+    assert 0 < spent_on_quote <= quote_cap(budget)  # never more than the button said
+    assert len(run.cases) < run.job_size == quote.companies == 8  # a sample, priced for the whole job
+
+    result = await run.deliver()  # what Accept starts
+    assert ledger.credits_charged(run.run_id) > spent_on_quote
+    assert result.credits <= budget
+    assert len(result.answers) == 8  # the rest was listed only after Accept
+
+
+async def test_a_client_list_is_looked_up_a_sample_first(settings, fake, ledger):
+    job = "Head of engineering at paysetu.in, ledgerline.com, finvolt.in, upitra.com and coinwell.in"
+    run = Run(settings, job, 10.0, minutes=20, transport=fake.transport(), today=TODAY, ledger=ledger)
+    await run.quote()
+    assert ledger.credits_charged(run.run_id) <= quote_cap(10.0)
+    result = await run.deliver()
+    assert sorted(a.company.name for a in result.answers) == [
+        "Coinwell", "Finvolt", "Ledgerline", "Paysetu Technologies", "Upitra"]

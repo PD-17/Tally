@@ -85,7 +85,7 @@
     <p class="headline" id="headline"></p>
     <div class="stats" id="quoteStats"></div>
     <svg id="curve" viewBox="0 0 600 180" width="100%" height="180" role="img" aria-label="Expected answers for each budget"></svg>
-    <div class="row"><button id="accept">Accept the quote</button><span class="muted">Accepting approves spending up to the budget. Anything over the approval threshold still asks.</span></div>
+    <div class="row"><button id="accept">Accept the quote</button><span class="muted" id="acceptNote">Accepting approves spending up to the budget. Anything over the approval threshold still asks.</span></div>
   </section>
 
   <section id="live" class="hidden">
@@ -157,9 +157,23 @@ async function post(path, body) {
 // ----- mode banner and phone link -----
 fetch("/api/info").then((r) => r.json()).then((info) => {
   window.lanUrl = info.lan_url;
+  window.quoteShare = info.quote_share;
+  showSpending();
   const text = { fake: "FAKE MODE: made-up offline data, for tests only", replay: "REPLAY: saved responses, not live data" }[info.mode];
   if (text) { $("banner").textContent = text; $("banner").style.display = "block"; }
 });
+
+// ----- what each click can spend, said before the click -----
+function showSpending() {
+  const budget = +$("budget").value || 0, race = $("race").checked;
+  const cap = Math.round(budget * (window.quoteShare || 0) * 100) / 100;
+  $("go").textContent = window.quoteShare ? `Get a quote (spends up to ${cap} credits)` : "Get a quote";
+  $("acceptNote").textContent = race
+    ? `Accepting approves spending up to ${budget} credits for Tally and up to ${budget} more for the naive buyer it races (${2 * budget} in all). Anything over the approval threshold still asks.`
+    : `Accepting approves spending up to ${budget} credits, the quote included. Anything over the approval threshold still asks.`;
+}
+$("budget").oninput = showSpending;
+$("race").onchange = showSpending;
 
 // ----- 1 and 2: ask for a quote, then accept it -----
 $("go").onclick = async () => {

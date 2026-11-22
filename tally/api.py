@@ -27,7 +27,7 @@ from tally.planner import EnrichEverything
 from tally.race import scoreboard
 from tally.recovery import account_balance
 from tally.report import bill, receipt
-from tally.runner import Run, RunResult, new_run_id
+from tally.runner import QUOTE_SHARE, Run, RunResult, new_run_id
 from tally.vendor import audit_offer, make_offer
 from tally.wallet import ApprovalRequest
 
@@ -176,8 +176,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/info")
     async def info():
-        """Mode (for the REPLAY / FAKE banner) and the address phones on the same Wi-Fi can use."""
-        return {"mode": desk.settings.mode, "lan_url": f"http://{_lan_ip()}:8000"}
+        """Mode (for the REPLAY / FAKE banner), the address phones on the same Wi-Fi can use, and the
+        share of the budget a quote may spend (the desk shows it on the button before the click)."""
+        return {"mode": desk.settings.mode, "lan_url": f"http://{_lan_ip()}:8000", "quote_share": QUOTE_SHARE}
 
     @app.post("/api/jobs")
     async def start_job(request: JobRequest):

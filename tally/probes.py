@@ -52,8 +52,10 @@ class Buyer:
         self.ledger = ledger
         self.run_id = wallet.run_id
 
-    async def find_companies(self, node: BudgetNode, spec: JobSpec, limit: int) -> Bought[list[Company]]:
-        """Up to `limit` companies matching the client's filters (0.03 a result plus premium filters)."""
+    async def find_companies(self, node: BudgetNode, spec: JobSpec,
+                             limit: int) -> Bought[tuple[list[Company], int | None]]:
+        """Up to `limit` companies matching the client's filters (0.03 a result plus premium
+        filters), and how many match in all."""
         conditions = []
         if spec.country:
             conditions.append({"field": "locations.country", "type": "=", "value": spec.country})
@@ -67,7 +69,8 @@ class Buyer:
         worst_case = self.prices.company_search(limit, self.company_search_premium(spec))
         bought = await self._buy(node, "/company/search", body, worst_case, f"find {limit} companies matching the job")
         companies = [schema.company_from_record(r) for r in bought.value.get("companies", [])]
-        return Bought(companies, bought.call_key, bought.credits, bought.request_id)
+        return Bought((companies, bought.value.get("total_count")), bought.call_key, bought.credits,
+                      bought.request_id)
 
     def company_search_premium(self, spec: JobSpec) -> list[str]:
         """The premium filter groups `find_companies` will use for this job."""

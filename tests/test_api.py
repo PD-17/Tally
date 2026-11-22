@@ -42,3 +42,5 @@ async def test_the_desk_flow_end_to_end(settings):
         assert audit["chain_ok"]
         page = await client.get("/")
         assert "Tally" in page.text
+        info = (await client.get("/api/info")).json()
+        assert info["quote_share"] == 0.2  # the desk shows "spends up to" from this before the click

@@ -40,6 +40,15 @@ PILOT_SIZE = 5  # companies done properly before the quote
 APPROVAL_SHARE = 0.25  # a single data purchase above this share of the budget asks a person...
 MIN_APPROVAL_CREDITS = 20.0  # ...if it is also above this (so small budgets aren't all questions)
 ANSWERED = (Status.CONFIRMED, Status.PROBABLE, Status.CONFLICT)
+# "Get a quote" may spend at most this share of the budget (shown on the button before the click):
+# a sample of the job, priced honestly. Everything else waits for Accept.
+QUOTE_SHARE = 0.2
+LISTING_SHARE = 0.5  # of what a phase may spend, the most that listing companies may take
+
+
+def quote_cap(budget: float) -> float:
+    """The most "Get a quote" can spend for this budget."""
+    return round(budget * QUOTE_SHARE, 2)
 
 
 @dataclass
@@ -104,6 +113,8 @@ class Run:
         self.cases: list[Case] = []
         self.quote_card: Quote | None = None
         self.early_stop: str | None = None  # why there is nothing to deliver
+        self.job_size = 0  # how many companies the job covers (the quote may list only a sample)
+        self._asked_domains: set[str] = set()  # a client's domains already looked up
 
     async def execute(self) -> RunResult:
         """Quote, then deliver without waiting for an Accept (the command line and tests)."""
@@ -111,8 +122,10 @@ class Run:
         return await self.deliver()
 
     async def quote(self) -> Quote | None:
-        """Phase 1: read the job, list the companies, do a few properly, and forecast the rest.
+        """Phase 1: read the job, list a sample of companies, do a few properly, and forecast the rest.
 
+        Everything it buys comes out of its own budget of `quote_cap(budget)`, which the client
+        sees before asking. The rest of the job is bought only in `deliver()`, after Accept.
         Returns None when there is nothing to quote (an unsupported job, no companies);
         `deliver()` then reports why.
         """
@@ -123,24 +136,34 @@ class Run:
         if self.spec.unsupported_reason:
             self.early_stop = f"unsupported: {self.spec.unsupported_reason}"
             return None
+
+        root = self.wallet.root
+        quote_budget = root.carve(f"quote-{len(root.children) + 1}",
+                                  min(quote_cap(root.limit), max(root.available(), 0.0)))
         try:
-            self.cases = [Case(c) for c in await self._companies(self.spec)]
+            return await self._sample_and_forecast(quote_budget)
+        finally:
+            root.reclaim(quote_budget)  # whatever the quote didn't spend goes back to the job
+
+    async def _sample_and_forecast(self, node: BudgetNode) -> Quote | None:
+        try:
+            self.cases = [Case(c) for c in await self._companies(self.spec, node)]
         except BudgetRefused as refused:
             self.early_stop = f"stopped before listing companies: {refused.reason}"
             return None
         if not self.cases:
-            self.early_stop = "no companies matched, or the budget can't list any"
+            self.early_stop = "no companies matched, or the quote's budget can't list any"
             return None
         self.emit("companies", {"names": [c.company.name for c in self.cases]})
 
         pilot = self.cases[:PILOT_SIZE]
         started = time.monotonic()
-        await self._buy_until_done(self.spec, pilot)
+        await self._buy_until_done(self.spec, pilot, node)
         seconds_each = (time.monotonic() - started) / len(pilot)
         model_inr_each = (self.ledger.model_cost_inr(self.run_id) or 0.0) / len(pilot)
         outcomes = [PilotCompany(c.credits, c.status(self.today) in ANSWERED, seconds_each, model_inr_each)
                     for c in pilot]
-        self.quote_card = make_quote(outcomes, len(self.cases), self.wallet.root.limit,
+        self.quote_card = make_quote(outcomes, max(self.job_size, len(self.cases)), self.wallet.root.limit,
                                      self.ledger.credits_charged(self.run_id), self.settings)
         self.ledger.update_run(self.run_id, quote=self.quote_card.as_dict())
         self.emit("quote", self.quote_card.as_dict() | {"headline": self.quote_card.headline()})
@@ -148,11 +171,13 @@ class Run:
         return self.quote_card
 
     async def deliver(self) -> RunResult:
-        """Phase 2: the rest of the job, then each case's honest answer."""
+        """Phase 2, after Accept: list the companies the quote's sample left out, buy the rest
+        of the job, then give each case its honest answer."""
         try:
             if self.early_stop:
                 return await self._finish(self.spec, [], self.early_stop)
-            stop_reason = await self._buy_until_done(self.spec, self.cases)
+            await self._list_the_rest(self.spec)
+            stop_reason = await self._buy_until_done(self.spec, self.cases, self.wallet.root)
             await self._second_opinion_on_titles(self.spec, self.cases)
             return await self._finish(self.spec, [self._answer(c) for c in self.cases], stop_reason)
         finally:
@@ -182,7 +207,9 @@ class Run:
                 self._note(f"reconciled after restart: {line}")
         elif "starting_balance" not in self.ledger.run(self.run_id)["details"]:
             self.ledger.update_run(self.run_id, starting_balance=await account_balance(self.client))
-        self.wallet.root.spent = self.ledger.credits_charged(self.run_id)  # what earlier attempts already spent
+        # What earlier attempts already spent, less what this run's sub-budgets (a quote) hold themselves.
+        root = self.wallet.root
+        root.spent = self.ledger.credits_charged(self.run_id) - sum(c.total_spent() for c in root.children)
 
     async def _load_key_limits(self) -> None:
         """This key's own prices and rate limits, from the free endpoint list. Replay has none saved;
@@ -197,42 +224,62 @@ class Run:
 
     # ----- finding the companies -----
 
-    async def _companies(self, spec: JobSpec) -> list[Company]:
-        """The companies to cover, as many as the budget can afford to list."""
-        root = self.wallet.root
+    async def _companies(self, spec: JobSpec, node: BudgetNode) -> list[Company]:
+        """As many of the job's companies as `node` can list with half of what it has left,
+        so the other half can work on them. Sets `job_size`, the job's full count."""
+        share = max(node.available(), 0.0) * LISTING_SHARE
         if spec.company_domains:
-            affordable = int(root.available() // self.prices.identify(1))
-            asked = sorted(set(spec.company_domains))[:affordable]
-            if len(asked) < len(spec.company_domains):
-                self._note(f"the budget covers looking up {len(asked)} of {len(spec.company_domains)} domains")
+            domains = sorted({d.lower().removeprefix("www.") for d in spec.company_domains})
+            self.job_size = len(domains)
+            asked = [d for d in domains if d not in self._asked_domains][: int(share // self.prices.identify(1))]
             if not asked:
                 return []
-            bought = await self.buyer.identify(root, asked)
+            self._asked_domains.update(asked)
+            bought = await self.buyer.identify(node, asked)
             found = [company for _, company in bought.value if company]
             unmatched = [domain for domain, company in bought.value if company is None]
             if unmatched:
                 self._note(f"no company record for {', '.join(unmatched)}: left out, not guessed")
         else:
+            wanted = max(spec.company_count, 1)
             per_company = self.prices.company_search(1, self.buyer.company_search_premium(spec))
-            limit = min(max(spec.company_count, 1), 1000, int(root.available() // per_company))
-            if limit < spec.company_count:
-                self._note(f"the budget covers listing {limit} of {spec.company_count} companies")
+            limit = min(wanted, 1000, int(share // per_company))
             if limit == 0:
+                self.job_size = wanted
                 return []
-            found = (await self.buyer.find_companies(root, spec, limit)).value
+            found, total = (await self.buyer.find_companies(node, spec, limit)).value
+            self.job_size = min(wanted, total) if total is not None else wanted
+        if len(found) < self.job_size:
+            self._note(f"listed {len(found)} of {self.job_size} companies so far")
         return merge_duplicates(found)[: spec.company_count]
+
+    async def _list_the_rest(self, spec: JobSpec) -> None:
+        """After Accept: list the companies the quote's sample left out, keeping the work done.
+        (A company search can't skip what it returned before, so the sample is listed again.)"""
+        if len(self.cases) >= self.job_size:
+            return
+        try:
+            more = await self._companies(spec, self.wallet.root)
+        except BudgetRefused as refused:
+            self._note(f"couldn't list the rest of the companies ({refused.reason}); delivering {len(self.cases)}")
+            return
+        known = {case.company.company_id for case in self.cases}
+        fresh = [Case(company) for company in more if company.company_id not in known]
+        self.cases += fresh[: max(self.job_size - len(self.cases), 0)]
+        self.emit("companies", {"names": [c.company.name for c in self.cases]})
 
     # ----- the buying loop -----
 
-    async def _buy_until_done(self, spec: JobSpec, cases: list[Case]) -> str:
+    async def _buy_until_done(self, spec: JobSpec, cases: list[Case], node: BudgetNode) -> str:
+        """Buy for `cases` out of `node` (the quote's budget, or the whole job's) until nothing is worth it."""
         while True:
-            action = self.planner.next_action(cases, self.wallet.root.available())
+            action = self.planner.next_action(cases, node.available())
             if action is None:
-                return "nothing left worth buying" if self.wallet.root.available() > 0 else "budget used"
+                return "nothing left worth buying" if node.available() > 0 else "budget used"
             self._note(action.describe())
             values_before = [c.value(self.today) for c in action.cases]
             try:
-                await self._do(spec, action)
+                await self._do(spec, action, node)
             except BudgetRefused as refused:
                 if refused.reason in ("killed", "deadline"):
                     return refused.reason
@@ -251,21 +298,20 @@ class Run:
             for case in action.cases:
                 self.emit("case", case_summary(case, self.today))
 
-    async def _do(self, spec: JobSpec, action: Action) -> None:
-        root = self.wallet.root
+    async def _do(self, spec: JobSpec, action: Action, node: BudgetNode) -> None:
         if action.step is Step.SEARCH:
-            bought = await self.buyer.people_at(root, [c.company for c in action.cases], spec.role_titles)
+            bought = await self.buyer.people_at(node, [c.company for c in action.cases], spec.role_titles)
             for case in action.cases:
                 self._pay(case, bought, share=len(action.cases))
                 self._consider(case, bought.value.get(case.company.company_id, []), bought, "person search")
         elif action.step is Step.LEADERS:
             case = action.cases[0]
-            bought = await self.buyer.leaders_of(root, case.company)
+            bought = await self.buyer.leaders_of(node, case.company)
             self._pay(case, bought)
             self._consider(case, bought.value, bought, "company record, people section")
         elif action.step is Step.NEWS:
             case = action.cases[0]
-            bought = await self.buyer.news_about(root, case.company, case.candidate)
+            bought = await self.buyer.news_about(node, case.company, case.candidate)
             self._pay(case, bought)
             case.news, item = read_news(case.candidate, case.company.name, bought.value)
             if item:
@@ -273,7 +319,7 @@ class Run:
                                            bought.call_key))
         elif action.step is Step.REREAD:
             case = action.cases[0]
-            bought = await self.buyer.confirm(root, case.candidate)
+            bought = await self.buyer.confirm(node, case.candidate)
             self._pay(case, bought)
             if bought.value:
                 self._consider(case, [bought.value], bought, "person record")
