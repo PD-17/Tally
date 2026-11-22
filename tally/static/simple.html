@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tally</title>
+<style>
+/* An analyst's report, not a dashboard: paper, ink, one data colour, quiet verdicts. */
+:root {
+  --bg: #f6f4ef; --card: #fffefb; --ink: #1c1b18; --muted: #6e695f; --line: #e3dfd5; --soft: #efece4;
+  --accent: #1c1b18; --on-accent: #fffefb; --data: #34556b; --data-soft: rgba(52,85,107,.10);
+  --red: #a63a24; --amber: #a86e14; --blue: #4d6477; --green: #3d6a50; --grey: #aaa398;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #131311; --card: #1a1a17; --ink: #ebe8e1; --muted: #9a958a; --line: #2d2c28; --soft: #22211d;
+  --accent: #ebe8e1; --on-accent: #131311; --data: #8fb0c4; --data-soft: rgba(143,176,196,.12);
+  --red: #dc7a63; --amber: #d6a253; --blue: #97adbf; --green: #8dbd9c; --grey: #6c675e; } }
+:root[data-theme="dark"] {
+  --bg: #131311; --card: #1a1a17; --ink: #ebe8e1; --muted: #9a958a; --line: #2d2c28; --soft: #22211d;
+  --accent: #ebe8e1; --on-accent: #131311; --data: #8fb0c4; --data-soft: rgba(143,176,196,.12);
+  --red: #dc7a63; --amber: #d6a253; --blue: #97adbf; --green: #8dbd9c; --grey: #6c675e; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { min-height: 100vh; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+main { max-width: 860px; margin: 0 auto; padding: 28px 18px 80px; }
+.hidden { display: none !important; }
+.muted { color: var(--muted); font-size: 14px; }
+.label { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+h1, h2, h3, .serif { font-family: var(--serif); font-weight: 600; letter-spacing: -.005em; }
+
+/* masthead */
+header { display: flex; align-items: flex-end; gap: 14px; padding-bottom: 14px; border-bottom: 2px solid var(--ink); }
+.mark { width: 38px; height: 38px; border: 1.5px solid var(--ink); display: grid; place-items: center;
+  font-family: var(--serif); font-weight: 700; font-size: 15px; letter-spacing: .02em; }
+header h1 { font-size: 26px; margin: 0; line-height: 1.1; }
+header p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
+.mode { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; padding-bottom: 3px; }
+.mode i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: breathe 2.4s ease-in-out infinite; }
+.mode.fake i { background: var(--amber); }
+
+/* steps */
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0 26px; }
+.step { border-top: 1px solid var(--line); padding-top: 8px; font-size: 13.5px; color: var(--muted); position: relative; }
+.step::before { content: ""; position: absolute; top: -1px; left: 0; height: 2px; width: 0; background: var(--ink); transition: width .5s ease; }
+.step.on, .step.done { color: var(--ink); } .step.on::before, .step.done::before { width: 100%; }
+.step.done::before { background: var(--muted); }
+.step span { font-family: var(--serif); font-size: 12px; color: var(--muted); margin-right: 6px; font-variant-numeric: tabular-nums; }
+
+/* sections */
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 26px 26px 24px; margin-bottom: 18px;
+  animation: rise .45s ease both; }
+.card h2 { margin: 2px 0 6px; font-size: 22px; line-height: 1.25; }
+.card h3 { margin: 28px 0 10px; font-size: 16px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.hero { display: grid; grid-template-columns: 1fr 220px; gap: 22px; align-items: center; }
+@media (max-width: 640px) { .hero { grid-template-columns: 1fr; } .hero svg { display: none; } .card { padding: 20px 18px; } }
+
+/* form */
+.drop { display: grid; place-items: center; gap: 4px; border: 1px dashed var(--grey); border-radius: 4px; padding: 24px;
+  text-align: center; cursor: pointer; color: var(--muted); margin-top: 20px; transition: border-color .2s, background .2s; }
+.drop:hover, .drop.over { border-color: var(--ink); background: var(--soft); }
+.drop.has { border-style: solid; border-color: var(--ink); color: var(--ink); }
+.drop input { display: none; }
+.drop svg { color: var(--ink); }
+.fields { display: grid; grid-template-columns: 1fr 210px; gap: 18px; margin: 18px 0 20px; }
+@media (max-width: 560px) { .fields { grid-template-columns: 1fr; } }
+label.f { display: grid; gap: 6px; }
+label.f .val { font-family: var(--serif); font-size: 15px; color: var(--ink); text-transform: none; letter-spacing: 0; margin-left: 4px; }
+input[type=text] { font: inherit; padding: 9px 11px; border: 1px solid var(--line); border-radius: 4px; background: var(--card);
+  color: var(--ink); width: 100%; transition: border-color .15s; }
+input[type=text]:focus { outline: none; border-color: var(--ink); }
+input[type=range] { width: 100%; accent-color: var(--ink); margin-top: 6px; }
+button { font: inherit; font-weight: 600; font-size: 14px; letter-spacing: .01em; padding: 10px 18px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); transition: opacity .15s, background .15s; }
+button:hover:not(:disabled) { opacity: .88; }
+button:disabled { opacity: .35; cursor: default; }
+button.ghost { background: transparent; color: var(--ink); }
+button.stop { background: transparent; color: var(--red); border-color: var(--red); }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.err { color: var(--red); min-height: 1em; margin: 10px 0 0; font-size: 14px; }
+
+/* figures */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); margin: 20px 0 6px; border-top: 1px solid var(--line); }
+@media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+.stat { padding: 12px 14px 12px 0; border-bottom: 1px solid var(--line); animation: rise .45s ease both; }
+.stat b { display: block; font-family: var(--serif); font-size: 30px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums lining-nums; }
+.stat span { font-size: 12.5px; color: var(--muted); }
+.split { display: grid; grid-template-columns: 190px 1fr; gap: 26px; align-items: center; margin-top: 18px; }
+@media (max-width: 640px) { .split { grid-template-columns: 1fr; justify-items: center; } }
+.legend { display: grid; gap: 7px; font-size: 14px; width: 100%; max-width: 360px; }
+.legend div { display: flex; align-items: center; gap: 10px; padding-bottom: 6px; border-bottom: 1px dotted var(--line); }
+.legend i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.legend b { margin-left: auto; font-family: var(--serif); font-size: 17px; font-variant-numeric: tabular-nums; }
+svg.chart { width: 100%; height: auto; display: block; overflow: visible; }
+svg.chart text { fill: var(--muted); font-size: 11px; font-family: var(--sans); }
+svg.chart text.big { fill: var(--ink); font-family: var(--serif); font-weight: 600; font-size: 40px; }
+svg.chart text.mid { fill: var(--ink); font-family: var(--serif); font-weight: 600; font-size: 32px; }
+svg.chart text.cap { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; }
+.plan { margin: 0; padding-left: 20px; font-size: 14px; color: var(--muted); }
+.plan li { padding: 3px 0; animation: rise .4s ease both; }
+.plan li::marker { font-family: var(--serif); color: var(--ink); }
+
+/* live */
+.live { display: grid; grid-template-columns: 160px 1fr; gap: 26px; align-items: center; margin-top: 8px; }
+@media (max-width: 560px) { .live { grid-template-columns: 1fr; justify-items: center; } .live > div { width: 100%; } }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(22px, 1fr)); gap: 5px; margin-top: 8px; }
+.tile { aspect-ratio: 1; border-radius: 2px; background: var(--soft); border: 1px solid var(--line); cursor: help; transition: background .5s, border-color .5s; }
+.tile.flip { animation: flip .55s ease; }
+.tile.v-contradicted { background: var(--red); border-color: var(--red); }
+.tile.v-records_disagree { background: var(--amber); border-color: var(--amber); }
+.tile.v-cant_verify { background: var(--blue); border-color: var(--blue); }
+.tile.v-confirmed { background: var(--green); border-color: var(--green); }
+.tile.v-held { background: var(--grey); border-color: var(--grey); }
+.feed { list-style: none; margin: 16px 0 0; padding: 0; font-size: 13px; color: var(--muted); max-height: 150px; overflow: hidden; }
+.feed li { padding: 5px 0; border-top: 1px dotted var(--line); animation: slide .35s ease both; }
+.ask { border: 1px solid var(--amber); border-left-width: 3px; border-radius: 4px; padding: 12px 14px; margin-top: 14px; animation: rise .4s ease both; }
+
+/* memo */
+.flag { display: grid; grid-template-columns: auto 1fr; gap: 12px; border-left: 3px solid var(--red); background: var(--soft);
+  padding: 10px 14px; margin: 10px 0; font-size: 14px; animation: rise .4s ease both; }
+.flag b { color: var(--red); }
+.claim { display: grid; grid-template-columns: 3px 1fr; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); animation: rise .45s ease both; }
+.claim:first-child { border-top: 0; }
+.claim p { margin: 2px 0; }
+.claim .quote { font-family: var(--serif); font-size: 16px; }
+.claim .src { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.verdict { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; margin-bottom: 2px; }
+.verdict i { width: 7px; height: 7px; border-radius: 50%; }
+ol.q { padding-left: 22px; margin: 6px 0 14px; } ol.q li { margin-bottom: 9px; animation: rise .4s ease both; }
+ol.q li::marker { font-family: var(--serif); }
+.comp { display: grid; grid-template-columns: 160px 1fr 96px; gap: 12px; align-items: center; font-size: 14px; padding: 6px 0; border-bottom: 1px dotted var(--line); }
+@media (max-width: 560px) { .comp { grid-template-columns: 110px 1fr 78px; } }
+.comp .track { height: 8px; background: var(--soft); }
+.comp .fill { height: 100%; width: 0; background: var(--data); transition: width 1.1s cubic-bezier(.2,.8,.2,1); }
+.comp .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comp .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+.receipt { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 22px; padding-top: 14px; border-top: 2px solid var(--ink); font-size: 13.5px; color: var(--muted); }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; }
+.check.ok { color: var(--green); } .check.no { color: var(--red); }
+
+/* motion: slow and small */
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes slide { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+@keyframes flip { 0% { transform: scale(1); } 40% { transform: scale(.6); } 100% { transform: scale(1); } }
+@keyframes sweep { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(64px, 40px); } }
+@keyframes mark { 0%, 25% { opacity: 0; } 35%, 85% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+.glass { animation: sweep 7s ease-in-out infinite; transform-box: fill-box; }
+.m1 { animation: mark 7s ease-in-out infinite; } .m2 { animation: mark 7s ease-in-out 1.6s infinite; } .m3 { animation: mark 7s ease-in-out 3.2s infinite; }
+.spinner { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--line); border-top-color: var(--ink);
+  animation: spin .9s linear infinite; display: inline-block; vertical-align: 1px; margin-right: 10px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="mark" aria-hidden="true">T</div>
+    <div><h1>Tally</h1><p>Every claim in a pitch deck, checked against the record.</p></div>
+    <span class="mode label" id="mode"><i></i><span id="modeText">Live data</span></span>
+  </header>
+
+  <nav class="steps" aria-label="Progress">
+    <div class="step on" id="s1"><span>01</span>Upload</div>
+    <div class="step" id="s2"><span>02</span>Quote</div>
+    <div class="step" id="s3"><span>03</span>Check</div>
+    <div class="step" id="s4"><span>04</span>Memo</div>
+  </nav>
+
+  <!-- 1: upload -->
+  <section class="card" id="step1">
+    <div class="hero">
+      <div>
+        <p class="label">Before the second meeting</p>
+        <h2>Test the deck against the record</h2>
+        <p class="muted">Each claim comes back confirmed, contradicted or can't verify, with the dated record behind it. You set the budget, and nothing is spent past it.</p>
+      </div>
+      <svg viewBox="0 0 220 168" width="220" height="168" aria-hidden="true" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="24" y="14" width="128" height="140" rx="3" stroke="var(--ink)" stroke-width="1.4" fill="var(--card)"/>
+        <path d="M40 34h58" stroke="var(--ink)" stroke-width="3"/>
+        <path d="M40 54h92M40 68h80M40 82h88M40 96h56" stroke="var(--grey)" stroke-width="1.4"/>
+        <path d="M40 138v-14M58 138v-22M76 138v-30M94 138v-18" stroke="var(--data)" stroke-width="7"/>
+        <path d="M34 138h76" stroke="var(--ink)" stroke-width="1"/>
+        <g class="m1"><circle cx="182" cy="42" r="12" stroke="var(--green)" stroke-width="1.6"/><path d="M176 42l4 4 8-8" stroke="var(--green)" stroke-width="1.8"/></g>
+        <g class="m2"><circle cx="190" cy="86" r="12" stroke="var(--red)" stroke-width="1.6"/><path d="M185 81l10 10M195 81l-10 10" stroke="var(--red)" stroke-width="1.8"/></g>
+        <g class="m3"><circle cx="180" cy="130" r="12" stroke="var(--blue)" stroke-width="1.6"/><path d="M176 126.5a4 4 0 1 1 5 3.8v2.2" stroke="var(--blue)" stroke-width="1.6"/><circle cx="181" cy="136.5" r=".9" fill="var(--blue)" stroke="none"/></g>
+        <g class="glass"><circle cx="64" cy="62" r="20" stroke="var(--ink)" stroke-width="2" fill="var(--data-soft)"/>
+          <path d="M78.5 76.5l15 15" stroke="var(--ink)" stroke-width="3.2"/></g>
+      </svg>
+    </div>
+    <label class="drop" id="drop">
+      <input id="file" type="file" accept=".pdf,.txt,.md">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M4 15v4h16v-4"/></svg>
+      <span id="fileLabel"><b>Drop the deck here</b>, or click to choose a PDF</span>
+    </label>
+    <div class="fields">
+      <label class="f"><span class="label">Founders, comma separated</span><input id="founders" type="text" placeholder="Asha Rao, Vik Mehta"></label>
+      <label class="f"><span class="label">Budget <span class="val"><span id="budgetOut">150</span> credits</span></span>
+        <input id="budget" type="range" min="5" max="300" step="5" value="150"></label>
+    </div>
+    <button id="go" disabled>Get a quote</button>
+    <p class="err" id="err"></p>
+  </section>
+
+  <!-- 2: quote -->
+  <section class="card hidden" id="step2">
+    <p class="label">The quote</p>
+    <h2><span class="spinner" id="reading"></span><span id="quoteTitle">Reading the deck…</span></h2>
+    <p class="muted" id="headline"></p>
+    <div class="hidden" id="quoteBody">
+      <div class="stats" id="quoteStats"></div>
+      <div class="split">
+        <svg class="chart" id="quoteDonut" viewBox="0 0 200 200" aria-label="Claims by how they get checked"></svg>
+        <div>
+          <svg class="chart" id="curve" viewBox="0 0 520 210" aria-label="Claims checked for each budget"></svg>
+          <p class="muted" style="margin:6px 0 0">Claims checked at each budget. The dashed rule is yours.</p>
+        </div>
+      </div>
+      <h3>What the checks will buy</h3>
+      <ol class="plan" id="plan"></ol>
+      <div class="row" style="margin-top:20px"><button id="accept">Check the claims</button><span class="muted" id="acceptNote"></span></div>
+    </div>
+  </section>
+
+  <!-- 3: live -->
+  <section class="card hidden" id="step3">
+    <p class="label">Checking</p>
+    <h2>Buying the records</h2>
+    <div class="live">
+      <svg class="chart" id="ring" viewBox="0 0 170 170" aria-label="Credits spent of the budget"></svg>
+      <div>
+        <p class="muted" style="margin:0">One square per claim. Each takes its verdict's colour as it lands.</p>
+        <div class="tiles" id="tiles"></div>
+        <ul class="feed" id="feed"></ul>
+      </div>
+    </div>
+    <div id="asks"></div>
+    <div class="row" style="margin-top:18px"><button class="stop" id="stop">Stop now</button><span class="muted" id="spent"></span></div>
+  </section>
+
+  <!-- 4: memo -->
+  <section class="card hidden" id="step4">
+    <p class="label">The memo</p>
+    <h2 id="company"></h2>
+    <p class="muted" id="memoSub"></p>
+    <div class="split">
+      <svg class="chart" id="memoDonut" viewBox="0 0 200 200" aria-label="Verdicts"></svg>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div id="flags"></div>
+    <h3>Claim by claim</h3>
+    <div id="claims"></div>
+    <h3>Questions for the founders</h3>
+    <ol class="q" id="questions"></ol>
+    <div class="row"><button id="qyes">Approve the questions</button><button class="ghost" id="qno">Don't send</button>
+      <span class="muted" id="qstate">Nothing reaches the founders until you approve.</span></div>
+    <h3>Comparable companies <span class="muted" style="font-family:var(--sans);font-weight:400">· by headcount</span></h3>
+    <div id="comps"></div>
+    <div class="receipt" id="receipt"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const post = (path, body) => fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const V = {  // verdict -> label and colour token
+  contradicted: ["Contradicted", "--red"], records_disagree: ["Records disagree", "--amber"],
+  cant_verify: ["Can't verify", "--blue"], confirmed: ["Confirmed", "--green"], held: ["Held", "--grey"], not_checked: ["Not checked", "--grey"],
+};
+const ORDER = Object.keys(V);
+let runId = null, memo = null, source = null;
+const claimState = {};
+
+// ----- drawing helpers -----
+function countUp(el, to, decimals = 0, ms = 900) {
+  if (still) { el.textContent = (+to).toFixed(decimals); return; }
+  const start = performance.now();
+  const tick = (t) => { const k = Math.min(1, (t - start) / ms), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = (to * e).toFixed(decimals); if (k < 1) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+}
+function donut(svg, segments, centerBig, centerSmall) {
+  const sum = segments.reduce((a, s) => a + s.value, 0) || 1, r = 80, c = 2 * Math.PI * r, gap = segments.filter((s) => s.value).length > 1 ? 3 : 0;
+  let offset = 0, arcs = "";
+  segments.filter((s) => s.value > 0).forEach((s, i) => {
+    const len = Math.max(0, c * s.value / sum - gap);
+    arcs += `<circle cx="100" cy="100" r="${r}" fill="none" stroke="${css(s.color)}" stroke-width="12"
+      stroke-dasharray="${still ? `${len} ${c}` : `0 ${c}`}" stroke-dashoffset="${-offset}" transform="rotate(-90 100 100)"
+      data-len="${len}" style="transition: stroke-dasharray 1s cubic-bezier(.2,.8,.2,1) ${i * .15}s"><title>${esc(s.label)}: ${s.value}</title></circle>`;
+    offset += c * s.value / sum;
+  });
+  svg.innerHTML = `<circle cx="100" cy="100" r="${r}" fill="none" stroke="${css("--soft")}" stroke-width="12"/>${arcs}
+    <text x="100" y="108" text-anchor="middle" class="big">${centerBig}</text>
+    <text x="100" y="130" text-anchor="middle" class="cap">${esc(centerSmall)}</text>`;
+  requestAnimationFrame(() => requestAnimationFrame(() =>
+    svg.querySelectorAll("circle[data-len]").forEach((a) => a.setAttribute("stroke-dasharray", `${a.dataset.len} ${c}`))));
+}
+function curveChart(svg, points, budget, claims) {
+  const W = 520, H = 210, L = 30, R = 10, T = 14, B = 30, ink = css("--ink"), data = css("--data");
+  const maxX = Math.max(budget, points[points.length - 1][0]) * 1.08 || 1, maxY = Math.max(1, claims);
+  const x = (v) => L + (W - L - R) * v / maxX, y = (v) => H - B - (H - T - B) * v / maxY;
+  let d = `M${x(0)},${y(points[0][1])} L${x(points[0][0])},${y(points[0][1])}`;
+  points.slice(1).forEach(([b, n], i) => { d += ` L${x(b)},${y(points[i][1])} L${x(b)},${y(n)}`; });
+  const area = `${d} L${x(points[points.length - 1][0])},${y(0)} L${x(0)},${y(0)} Z`;
+  const grid = [0, .5, 1].map((f) => `<line x1="${L}" x2="${W - R}" y1="${y(maxY * f)}" y2="${y(maxY * f)}" stroke="${css("--line")}" ${f ? 'stroke-dasharray="2 4"' : ""}/>
+    <text x="${L - 8}" y="${y(maxY * f) + 4}" text-anchor="end">${Math.round(maxY * f)}</text>`).join("");
+  svg.innerHTML = `${grid}
+    <path d="${area}" fill="${css("--data-soft")}" opacity="0" style="transition: opacity 1s .7s" class="area"/>
+    <path d="${d}" fill="none" stroke="${data}" stroke-width="2" stroke-linejoin="round" class="line"/>
+    ${points.map(([b, n]) => `<circle cx="${x(b)}" cy="${y(n)}" r="3" fill="${css("--card")}" stroke="${data}" stroke-width="1.6"><title>${b} credits: ${n} claims</title></circle>`).join("")}
+    <line x1="${x(budget)}" x2="${x(budget)}" y1="${T - 4}" y2="${H - B}" stroke="${ink}" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="${x(budget) > W - 90 ? x(budget) - 6 : x(budget) + 6}" y="${T + 6}" text-anchor="${x(budget) > W - 90 ? "end" : "start"}" class="cap" style="fill:${ink}">your budget</text>
+    <text x="${W - R}" y="${H - 8}" text-anchor="end">${maxX.toFixed(0)} credits</text><text x="${L}" y="${H - 8}">0</text>`;
+  const line = svg.querySelector(".line"), len = line.getTotalLength();
+  if (!still) { line.style.strokeDasharray = len; line.style.strokeDashoffset = len; line.getBoundingClientRect();
+    line.style.transition = "stroke-dashoffset 1.3s ease"; line.style.strokeDashoffset = 0; }
+  svg.querySelector(".area").style.opacity = 1;
+}
+function ring(spent, limit) {
+  const r = 66, c = 2 * Math.PI * r, f = Math.min(1, limit ? spent / limit : 0);
+  const color = f > .9 ? css("--red") : f > .7 ? css("--amber") : css("--data");
+  $("ring").innerHTML = `<circle cx="85" cy="85" r="${r}" fill="none" stroke="${css("--soft")}" stroke-width="8"/>
+    <circle cx="85" cy="85" r="${r}" fill="none" stroke="${color}" stroke-width="8"
+      stroke-dasharray="${c * f} ${c}" transform="rotate(-90 85 85)" style="transition: stroke-dasharray .7s ease, stroke .4s"/>
+    <text x="85" y="90" text-anchor="middle" class="mid">${spent.toFixed(1)}</text>
+    <text x="85" y="110" text-anchor="middle" class="cap">of ${limit.toFixed(0)} credits</text>`;
+}
+function setStep(n) {
+  [1, 2, 3, 4].forEach((i) => { $("s" + i).classList.toggle("on", i === n); $("s" + i).classList.toggle("done", i < n); });
+}
+const go = (id) => { $(id).classList.remove("hidden"); $(id).scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" }); };
+
+// ----- mode -----
+fetch("/api/info").then((r) => r.json()).then((info) => {
+  if (info.mode !== "live") { $("mode").classList.add("fake");
+    $("modeText").textContent = info.mode === "fake" ? "Test data" : info.mode === "replay" ? "Replay, not live" : "Live, recording"; }
+});
+
+// ----- 1: upload -----
+const pick = (file) => {
+  if (!file) return;
+  const dt = new DataTransfer(); dt.items.add(file); $("file").files = dt.files;
+  $("fileLabel").innerHTML = `<b>${esc(file.name)}</b> · ${(file.size / 1024).toFixed(0)} KB · click to change`;
+  $("drop").classList.add("has"); $("go").disabled = false;
+};
+$("file").onchange = () => pick($("file").files[0]);
+["dragenter", "dragover"].forEach((t) => $("drop").addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => $("drop").addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.remove("over"); }));
+$("drop").addEventListener("drop", (e) => pick(e.dataTransfer.files[0]));
+$("budget").oninput = () => { $("budgetOut").textContent = $("budget").value; };
+
+$("go").onclick = async () => {
+  const file = $("file").files[0];
+  $("go").disabled = true; $("err").textContent = "";
+  const b64 = await new Promise((done) => { const r = new FileReader(); r.onload = () => done(r.result.split(",")[1]); r.readAsDataURL(file); });
+  const res = await post("/api/memos", { deck_b64: b64, filename: file.name, budget: +$("budget").value,
+    founders: $("founders").value.split(",").map((s) => s.trim()).filter(Boolean) });
+  if (!res.ok) { $("err").textContent = "Couldn't start: " + (await res.text()); $("go").disabled = false; return; }
+  runId = (await res.json()).run_id;
+  setStep(2); go("step2");
+  listen();
+};
+
+// ----- events -----
+function listen() {
+  source = new EventSource(`/api/events?run_id=${encodeURIComponent(runId)}`);
+  source.onmessage = (m) => {
+    const e = JSON.parse(m.data);
+    if (e.run_id !== runId) return;
+    if (e.kind === "deck") $("quoteTitle").textContent = `${e.company || "The deck"}: ${e.claims} claims found`;
+    if (e.kind === "quote") showQuote(e);
+    // A claim event's own "kind" (headcount, investor...) replaces "claim" on the stream, so spot it by its fields.
+    if (e.verdict !== undefined && e.index !== undefined) claim(e);
+    if (e.kind === "settled") { ring(e.spent, e.limit); $("spent").textContent = `Last: ${e.credits.toFixed(2)} credits for ${e.endpoint}`; }
+    if (e.kind === "note") feed(e.text);
+    if (e.kind === "flag") feed("Flag: " + e.text);
+    if (e.kind === "approval") ask(e);
+    if (e.kind === "error") $("err").textContent = e.error;
+    if (e.kind === "done") { $("stop").disabled = true; setTimeout(loadMemo, 300); }
+  };
+}
+function feed(text) {
+  const li = document.createElement("li"); li.textContent = text; $("feed").prepend(li);
+  while ($("feed").children.length > 6) $("feed").lastChild.remove();
+}
+
+// ----- 2: quote -----
+function showQuote(q) {
+  $("reading").classList.add("hidden");
+  $("headline").textContent = q.headline;
+  $("quoteBody").classList.remove("hidden");
+  const stats = [[q.claims, "claims in the deck"], [q.settled_by_record, "settled by the company record"],
+                 [q.checked_at_budget, "checked at your budget"], [q.full_check_credits, "credits for a full check", 1]];
+  $("quoteStats").innerHTML = stats.map(([, label], i) => `<div class="stat" style="animation-delay:${i * .08}s"><b id="qs${i}">0</b><span>${label}</span></div>`).join("");
+  stats.forEach(([v, , d], i) => countUp($("qs" + i), v, d || 0));
+  const toCheck = Math.max(0, q.checked_at_budget - q.settled_by_record), beyond = Math.max(0, q.claims - q.checked_at_budget);
+  donut($("quoteDonut"), [
+    { value: q.settled_by_record, color: "--ink", label: "Settled by the company record" },
+    { value: toCheck, color: "--data", label: "Checked with your budget" },
+    { value: beyond, color: "--grey", label: "Beyond your budget" }], `${q.checked_at_budget}/${q.claims}`, "checked");
+  curveChart($("curve"), q.curve, q.budget, q.claims);
+  $("plan").innerHTML = (q.planned || []).slice(0, 6).map((p, i) => `<li style="animation-delay:${i * .06}s">${esc(p)}</li>`).join("")
+    || "<li>Nothing more to buy: the record settles it.</li>";
+  $("acceptNote").textContent = `Approves spending up to ${q.budget.toFixed(0)} credits.`;
+  ring(0, q.budget);
+}
+$("accept").onclick = () => { post(`/api/jobs/${runId}/accept`); $("accept").disabled = true; setStep(3); go("step3"); };
+$("stop").onclick = () => { post(`/api/jobs/${runId}/kill`); $("stop").disabled = true; feed("Stopping: no more purchases."); };
+
+// ----- 3: live tiles -----
+function claim(e) {
+  let tile = document.querySelector(`.tile[data-i="${e.index}"]`);
+  if (!tile) { tile = document.createElement("div"); tile.className = "tile"; tile.dataset.i = e.index; $("tiles").append(tile); }
+  const before = claimState[e.index];
+  claimState[e.index] = e.verdict;
+  tile.className = `tile v-${e.verdict}`;
+  tile.title = `${V[e.verdict]?.[0] || e.verdict}: ${e.text}`;
+  if (before && before !== e.verdict) { tile.classList.add("flip"); feed(`${V[e.verdict][0]}: ${e.text.slice(0, 64)}`); }
+}
+function ask(e) {
+  const box = document.createElement("div"); box.className = "ask";
+  box.innerHTML = `<p style="margin:0 0 10px"><b>Needs you.</b> ${esc(e.reason)}, up to ${e.credits.toFixed(2)} credits.</p>`;
+  const yes = document.createElement("button"), no = document.createElement("button");
+  yes.textContent = "Allow"; no.textContent = "Don't"; no.className = "ghost";
+  const answer = (approve) => post(`/api/jobs/${runId}/approvals/${e.binding}`, { approve }).finally(() => box.remove());
+  yes.onclick = () => answer(true); no.onclick = () => answer(false);
+  const row = document.createElement("div"); row.className = "row"; row.append(yes, no); box.append(row);
+  $("asks").append(box);
+}
+
+// ----- 4: memo -----
+async function loadMemo() {
+  const res = await fetch(`/api/memos/${runId}`);
+  if (!res.ok) { setTimeout(loadMemo, 700); return; }
+  memo = await res.json();
+  const b = memo.bill, v = b.verdicts;
+  setStep(4); go("step4");
+  $("company").textContent = memo.company;
+  $("memoSub").textContent = `${b.claims} claims · ${b.credits.toFixed(2)} credits${b.total_inr != null ? ` · ₹${b.total_inr.toFixed(2)} with model calls` : ""}`;
+
+  const shown = ["contradicted", "records_disagree", "cant_verify", "confirmed", "not_checked"].filter((k) => v[k]);
+  donut($("memoDonut"), shown.map((k) => ({ value: v[k], color: V[k][1], label: V[k][0] })), v.contradicted || 0, "contradicted");
+  $("legend").innerHTML = shown.map((k, i) => `<div style="animation: rise .4s ease ${i * .07}s both"><i style="background:${css(V[k][1])}"></i>${V[k][0]}<b id="lg${i}">0</b></div>`).join("");
+  shown.forEach((k, i) => countUp($("lg" + i), v[k]));
+
+  const flagIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${css("--red")}" stroke-width="1.8" stroke-linecap="round"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>`;
+  $("flags").innerHTML = (memo.domain_flag ? `<div class="flag">${flagIcon}<div><b>Domain warning.</b> ${esc(memo.domain_flag)}</div></div>` : "")
+    + memo.instructions_ignored.map((t) => `<div class="flag">${flagIcon}<div><b>Hidden instruction in the deck, ignored.</b> "${esc(t)}"</div></div>`).join("");
+
+  const claims = [...memo.claims].sort((a, c) => ORDER.indexOf(a.verdict) - ORDER.indexOf(c.verdict));
+  $("claims").innerHTML = claims.map((c, i) => {
+    const color = css(V[c.verdict]?.[1] || "--grey");
+    return `<div class="claim" style="animation-delay:${Math.min(i, 12) * .05}s">
+      <div style="background:${color}"></div>
+      <div><div class="verdict" style="color:${color}"><i style="background:${color}"></i>${V[c.verdict]?.[0] || c.verdict}${c.provisional && c.verdict === "contradicted" ? " · provisional" : ""}</div>
+        <p class="quote">“${esc(c.claim)}” <span class="muted" style="font-family:var(--sans)">p. ${c.page}</span></p>
+        <p>${esc(c.reason)}</p>
+        ${c.sources.map((s) => `<p class="src">${esc(s.field)}: ${esc(s.says)} · ${esc((s.dated || "undated").slice(0, 10))}</p>`).join("")}</div>
+    </div>`; }).join("");
+
+  $("questions").innerHTML = memo.questions.map((q, i) => `<li style="animation-delay:${i * .06}s">${esc(q)}</li>`).join("") || "<li class='muted'>No questions.</li>";
+  const decided = memo.questions_decision;
+  if (decided) $("qstate").textContent = `Questions ${decided}.`;
+  $("qyes").disabled = $("qno").disabled = !!decided || !memo.questions.length;
+
+  const comps = memo.comparables, most = Math.max(1, ...comps.map((c) => c.headcount || 0));
+  const money = (u) => u == null ? "–" : u >= 1e6 ? `$${(u / 1e6).toFixed(1)}M` : `$${Math.round(u / 1e3)}K`;
+  $("comps").innerHTML = comps.map((c) => `<div class="comp" title="${esc(c.domain || "")}${c.record_date ? ` · record ${esc(c.record_date)}` : ""}">
+      <span class="name">${esc(c.name)}</span><div class="track"><div class="fill" data-w="${100 * (c.headcount || 0) / most}"></div></div>
+      <span class="num">${c.headcount ?? "?"} · ${money(c.funding_total_usd)}</span></div>`).join("") || "<p class='muted'>None at this budget.</p>";
+  requestAnimationFrame(() => requestAnimationFrame(() => document.querySelectorAll(".fill").forEach((f) => f.style.width = f.dataset.w + "%")));
+
+  const a = memo.audit;
+  $("receipt").innerHTML = `<span>Stopped because: ${esc(b.stopped_because)}.</span>`
+    + (a && a.matches != null ? `<span class="check ${a.matches ? "ok" : "no"}">${a.matches ? "✓ Ledger matches the balance" : "✗ Ledger doesn't match the balance"}</span>` : "")
+    + `<span class="check ${b.ledger_chain_ok ? "ok" : "no"}">${b.ledger_chain_ok ? "✓ Hash chain verified" : "✗ Hash chain broken"}</span>`;
+}
+
+const decide = async (approve) => {
+  const res = await post(`/api/memos/${runId}/questions`, { binding: memo.questions_binding, approve });
+  $("qstate").textContent = res.ok ? (approve ? "Approved: added to the team's outbox." : "Not sent.") : "Couldn't record that: " + (await res.text());
+  $("qyes").disabled = $("qno").disabled = true;
+};
+$("qyes").onclick = () => decide(true);
+$("qno").onclick = () => decide(false);
+</script>
+</body>
+</html>
