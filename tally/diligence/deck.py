@@ -349,11 +349,24 @@ def checkable(claims: list[DeckClaim]) -> tuple[list[DeckClaim], list[DeckClaim]
     """(claims to check, claims left out): plans, and names that aren't names, are left out."""
     kept, dropped = [], []
     for claim in claims:
-        if is_forward_looking(claim) or (claim.kind in NAMED_KINDS and not looks_like_name(claim.subject)):
+        if is_forward_looking(claim):
             dropped.append(claim)
+        elif claim.kind in (ClaimKind.CUSTOMER, ClaimKind.PARTNER_OR_AWARD) and _counts_subject(claim):
+            kept.append(claim.model_copy(update={"kind": ClaimKind.OTHER_METRIC, "subject": None}))
+        elif claim.kind in NAMED_KINDS and not looks_like_name(claim.subject):
+            if re.search(r"\d", claim.text) and claim.kind is not ClaimKind.INVESTOR:  # "100+ lenders": a figure
+                kept.append(claim.model_copy(update={"kind": ClaimKind.OTHER_METRIC, "subject": None}))
+            else:
+                dropped.append(claim)
         else:
             kept.append(claim)
     return kept, dropped
+
+
+def _counts_subject(claim: DeckClaim) -> bool:
+    """"100+ banks live on the platform": a figure counting the subject is a count, not a named customer."""
+    m = re.search(r"\d[\d.,]*\s*(?:%|k|m|mn|million|b|bn|billion|cr|crore|lakh)?\+?\s+([a-z]+)", claim.text.lower())
+    return bool(m and (not claim.subject or m[1] in claim.subject.lower()))
 
 
 # ----- the two readers together -------------------------------------------------------

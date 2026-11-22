@@ -466,7 +466,8 @@ def _web_only(claim: DeckClaim, index: int, ev: Evidence) -> Judgement:
     number = number_pattern(claim.text)
     if not subject and not number:
         return Judgement(Verdict.CANT_VERIFY, "nothing specific enough to check on the web", context)
-    found = _web_naming(ev, index, [subject or "", company or ""], number=number)
+    found = _web_naming(ev, index, [subject or "", company or ""] + (counted_words(claim.text) if number else []),
+                        number=number)
     if found:
         return Judgement(Verdict.CONFIRMED, "a web page says so", [found] + context)
     estimate = " (the revenue estimate is shown for context only)" if context else ""
@@ -537,6 +538,18 @@ NUMBER_UNITS = [("%", r"(?:%|percent| per cent)"), ("percent", r"(?:%|percent| p
                 ("million", r"(?:m|mn|million)\b"), ("mn", r"(?:m|mn|million)\b"), ("m", r"(?:m|mn|million)\b"),
                 ("crore", r"(?:cr|crore)\b"), ("cr", r"(?:cr|crore)\b"), ("lakh", r"lakhs?\b"),
                 ("k", r"(?:k|thousand)\b")]
+
+
+COUNT_STOPWORDS = {"of", "the", "a", "an", "in", "on", "to", "and", "per", "every", "each", "our", "with", "across",
+                   "people", "plus", "more", "than", "over", "month", "year", "annual", "fy26", "fy25", "fy24"}
+
+
+def counted_words(text: str) -> list[str]:
+    """What a figure counts: "15M+ credit decisions a month" -> ["credit", "decisions"]. A page that states the
+    figure about something else ("raised $15 million") doesn't confirm it."""
+    m = re.search(r"\d[\d.,]*\s*(?:%|percent|billion|bn|million|mn|crore|cr|lakh|[mbk])?\+?\s*(.*)", text.lower())
+    words = [w for w in re.findall(r"[a-z][a-z-]+", m[1] if m else "") if w not in COUNT_STOPWORDS]
+    return words[:2]
 
 
 def number_pattern(text: str) -> str | None:

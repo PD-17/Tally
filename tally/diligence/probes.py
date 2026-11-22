@@ -125,6 +125,9 @@ class DeckBuyer(Buyer):
         if not similar and not company.competitor_ids:  # the domain filter can match loosely: keep exact ones
             wanted_domains = {_bare(d) for d in company.competitor_domains[:8]}
             found = [c for c in found if c.domain and _bare(c.domain) in wanted_domains]
+        if not similar and company.headcount:  # SEO competitors can be tiny sites: keep ones of a comparable size
+            floor = max(10, company.headcount // 10)
+            found = [c for c in found if (c.headcount or 0) >= floor]
         unique = list({(c.company_id, c.domain): c for c in found}.values())[:COMPARABLES]
         return Bought(unique, bought.call_key, bought.credits, bought.request_id)
 

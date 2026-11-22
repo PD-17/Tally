@@ -19,7 +19,7 @@ import httpx
 
 from tally.config import Settings
 from tally.crust.client import CrustClient
-from tally.crust.errors import BadRequest, EndpointForbidden, OutOfCredits, SourceTimeout
+from tally.crust.errors import BadRequest, CrustError, EndpointForbidden, OutOfCredits, SourceTimeout
 from tally.diligence.claims import Evidence, Judgement, Verdict, find_person, judge, person_key
 from tally.diligence.deck import Deck, DeckReading, checkable, find_instructions, load_deck, merge_readings, \
     quote_in_text, read_deck_with_rules
@@ -254,7 +254,7 @@ class DiligenceRun(Session):
             self._note(f"{len(self.comparables)} comparables for {spent:.2f} credits")
         except BudgetRefused as refused:
             self._note(f"comparables not bought: {refused.reason}")
-        except (EndpointForbidden, BadRequest, SourceTimeout) as error:
+        except (CrustError, SourceTimeout) as error:
             self._note(f"comparables not available: {error}")
 
     async def _check_until_done(self) -> str:
@@ -277,11 +277,11 @@ class DiligenceRun(Session):
                 for i in check.claims:
                     self.claims[i].held = f"{check.why} timed out three times"
                 self._note(f"held for a person: {timeout}")
-            except (EndpointForbidden, BadRequest) as error:
-                self.planner.blocked.add(check.key)
-                self._note(f"blocked {check.key}: {error}")
             except OutOfCredits:
                 return "Crustdata credits ran out"
+            except (EndpointForbidden, BadRequest, CrustError) as error:
+                self.planner.blocked.add(check.key)
+                self._note(f"blocked {check.key}: {error}")
             self._rejudge()
 
     async def _do(self, check: Check) -> None:

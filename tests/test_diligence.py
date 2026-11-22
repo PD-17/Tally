@@ -224,3 +224,14 @@ def test_locations_match_the_full_address_city_aliases_and_country_codes():
         assert judge(claim, 0, ev).verdict is Verdict.CONFIRMED, subject
     assert judge(make_claim(ClaimKind.LOCATION, "HQ in Singapore", 1, subject="Singapore"), 0,
                  ev).verdict is Verdict.CONTRADICTED
+
+
+def test_a_figure_needs_what_it_counts_and_a_count_is_not_a_name():
+    ev = Evidence(profile=profile(), web={0: WebFinding([
+        {"title": "Acme funding", "snippet": "Acme announced a fundraise of $15 million for its credit platform.",
+         "url": "https://x.test/1"}], "k")})
+    claim = make_claim(ClaimKind.OTHER_METRIC, "15M+ credit decisions a month", 4, number=15e6)
+    assert judge(claim, 0, ev).verdict is Verdict.CANT_VERIFY  # the figure is about money, not decisions
+    kept, dropped = checkable([make_claim(ClaimKind.CUSTOMER, "100+ banks live on the platform", 4,
+                                          subject="banks, NBFCs and fintechs")])
+    assert kept[0].kind is ClaimKind.OTHER_METRIC and not dropped
