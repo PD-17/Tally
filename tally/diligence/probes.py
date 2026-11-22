@@ -1,5 +1,5 @@
-"""The purchases a deck check can make. Each goes through `Buyer._buy`, so the wallet, the
-ledger, idempotent call keys and crash recovery work exactly as for a research job."""
+"""The purchases a deck check can make. Each goes through `Buyer._buy` (`tally/probes.py`), so the
+wallet's ceiling, the ledger, idempotent call keys and crash recovery apply to every one."""
 
 from __future__ import annotations
 

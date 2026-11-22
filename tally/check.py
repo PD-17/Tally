@@ -1,9 +1,8 @@
 """`tally check`: the first thing to run once the Crustdata key works.
 
-Basic (about 0.45 credits): the free account calls, one Company Identify (0.2)
-and a one-result Person Search built exactly the way the planner builds it
-(about 0.23). `--full` adds one Company Search, one Company Enrich and one Web
-Search, the other shapes a run reads (about 3.7 credits more).
+Basic (about 2.2 credits): the free account calls, one Company Identify (0.2) and
+one Company Enrich (2) sent exactly as a deck check sends it. `--full` adds a Job
+Search, a comparables Company Search and a Web Search (about 5 credits more).
 
 It reads every answer the way the rest of Tally will, saves each raw response
 to <data dir>/check/ so a field-name mismatch can be fixed in
@@ -21,8 +20,7 @@ from tally.config import Settings
 from tally.crust import schema
 from tally.crust.client import CrustClient
 from tally.crust.fake import FakeCrustdata
-from tally.probes import PERSON_FIELDS, search_terms
-from tally.intake import HEAD_OF_ENGINEERING_TITLES
+from tally.diligence.probes import COMPARABLE_FIELDS, JOB_FIELDS, PROFILE_FIELDS
 
 PAID_PATHS = ("/person/search", "/company/search", "/company/identify", "/company/enrich",
               "/person/enrich", "/web/search/live", "/web/enrich/live")
@@ -60,8 +58,10 @@ class Checker:
         return response
 
 
-async def check(settings: Settings, domain: str = "crustdata.com", full: bool = False) -> int:
+async def check(settings: Settings, domain: str = "razorpay.com", full: bool = False) -> int:
     c = Checker(settings)
+    if settings.mode == "fake" and domain == "razorpay.com":
+        domain = "ledgerline.in"  # a company in the made-up world
     try:
         start = await c.get("account_credits", "/account/credits")
         start_balance = _balance(start.body)
@@ -97,33 +97,24 @@ async def check(settings: Settings, domain: str = "crustdata.com", full: bool = 
             return _summary(c)
         company = resolved[0][1]
 
-        # The exact request shape Buyer.people_at sends, limited to one result.
-        titles = [{"field": "experience.employment_details.current.title", "type": "(.)", "value": term}
-                  for term in search_terms(HEAD_OF_ENGINEERING_TITLES)]
-        search = await c.post("person_search", "/person/search", {
-            "filters": {"op": "and", "conditions": [
-                {"field": "experience.employment_details.current.company_id", "type": "in",
-                 "value": [company.company_id]},
-                {"op": "or", "conditions": titles},
-            ]},
-            "limit": 1,
-            "fields": PERSON_FIELDS,
-        })
-        profiles = search.body.get("profiles", [])
-        if not profiles:
-            print("  no engineering leader returned at this company (try --domain razorpay.com)")
-        else:
-            person = schema.candidate_from_profile(profiles[0])
-            print(f"  read as: {person}")
-            missing = [n for n in ("name", "title", "company_id", "updated_at") if not getattr(person, n)]
-            if missing:
-                c.problem(f"couldn't read {missing} from the profile (see check/person_search.json)")
-            elif person.company_id != company.company_id:
-                c.problem(f"profile company_id {person.company_id} != {company.company_id}: "
-                          "candidates would be dropped")
+        # The exact request DeckBuyer.company_profile sends.
+        enrich = await c.post("company_enrich", "/company/enrich",
+                              {"crustdata_company_ids": [company.company_id], "fields": PROFILE_FIELDS})
+        profile = schema.company_profile(enrich.body)
+        if profile is None:
+            c.problem("no company read from Company Enrich (see check/company_enrich.json); fix schema.company_profile")
+            return _summary(c)
+        print(f"  read as: {profile.name}, {profile.headcount} people ({profile.headcount_date}), "
+              f"funding {profile.funding_total_usd}, {len(profile.rounds)} rounds, "
+              f"{len(profile.all_investors())} investors, {len(profile.founders)} founders "
+              f"({sum(bool(f.past) for f in profile.founders)} with work history), "
+              f"{len(profile.competitor_ids)} competitor ids, {len(profile.competitor_domains)} competitor domains")
+        for name in ("headcount", "rounds", "founders"):
+            if not getattr(profile, name):
+                print(f"  note: no {name} on this record; try another --domain to be sure the field names are right")
 
         if full:
-            await _full(c, company)
+            await _full(c, profile)
 
         # ----- does the ledger's view match Crustdata's? -----
         after = await c.get("usage_after", "/account/usage/events", {"limit": 50})
@@ -144,34 +135,25 @@ async def check(settings: Settings, domain: str = "crustdata.com", full: bool = 
         await c.client.aclose()
 
 
-async def _full(c: Checker, company) -> None:
-    found = await c.post("company_search", "/company/search", {
-        "filters": {"op": "and", "conditions": [
-            {"field": "locations.country", "type": "=", "value": "India"},
-            {"field": "taxonomy.professional_network_industry", "type": "=", "value": "Financial Services"},
-            {"field": "headcount.total", "type": "=>", "value": 50},
-            {"field": "headcount.total", "type": "=<", "value": 500},
-        ]},
-        "limit": 1,
-    })
-    try:
-        companies = [schema.company_from_record(r) for r in found.body.get("companies", [])]
-        print(f"  read as: {companies}")
-        if not companies:
-            c.problem("Company Search returned nothing for India / Financial Services / 50-500: "
-                      "check filter field names and values (see check/company_search.json)")
-    except (TypeError, ValueError, KeyError) as error:
-        c.problem(f"couldn't read Company Search: {error!r} (see check/company_search.json)")
-
-    enrich = await c.post("company_enrich", "/company/enrich",
-                          {"crustdata_company_ids": [company.company_id], "fields": ["people"]})
-    leaders = schema.enriched_leaders(enrich.body).get(company.company_id)
-    print(f"  read as: {leaders}")
-    if leaders is None:
-        c.problem("no leaders read from Company Enrich (see check/company_enrich.json); fix schema.enriched_leaders")
-
+async def _full(c: Checker, profile) -> None:
+    jobs = await c.post("job_search", "/job/search", {
+        "filters": {"field": "company.basic_info.crustdata_company_id", "type": "in", "value": [profile.company_id]},
+        "limit": 5, "fields": JOB_FIELDS})
+    posts = schema.job_posts(jobs.body)
+    print(f"  read as: {posts.total} posts" + (f", newest {posts.posts[0].title} ({posts.posts[0].date})"
+                                                if posts.posts else ""))
+    domains = profile.competitor_domains[:5]
+    if profile.competitor_ids or domains:
+        flt = ({"field": "crustdata_company_id", "type": "in", "value": profile.competitor_ids[:5]}
+               if profile.competitor_ids else {"field": "basic_info.primary_domain", "type": "in", "value": domains})
+        comps = await c.post("company_search", "/company/search", {"filters": flt, "limit": 5,
+                                                                   "fields": COMPARABLE_FIELDS})
+        found = schema.comparables(comps.body)
+        print(f"  read as: {[(x.name, x.headcount, x.funding_total_usd) for x in found]}")
+        if not found:
+            c.problem("no comparables read (see check/company_search.json); fix schema.comparables")
     web = await c.post("web_search", "/web/search/live",
-                       {"query": f"{company.name} head of engineering", "sources": ["news", "web"]})
+                       {"query": f"{profile.name} raises funding", "sources": ["news", "web"]})
     results = schema.web_results(web.body)
     print(f"  read as: {len(results)} results" + (f", first: {results[0]}" if results else ""))
     if not results:

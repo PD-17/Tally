@@ -1,4 +1,4 @@
-"""One deck checked, start to finish, on the same wallet and ledger as a research job.
+"""One deck checked, start to finish, on the wallet and ledger in `tally/session.py`.
 
     read the deck -> identify the company (catches a lookalike domain) -> buy its record
     -> QUOTE (claims checked at each budget) -> accept -> comparables -> checks, best value first
@@ -29,9 +29,9 @@ from tally.diligence.probes import DeckBuyer, domain_check
 from tally.ledger import Ledger
 from tally.llm import Brain
 from tally.models import Purchase, Source
-from tally.quoter import PRICE_MULTIPLE
+from tally.config import PRICE_MULTIPLE
 from tally.recovery import BalanceCheck, check_balance
-from tally.runner import EventSink, Run
+from tally.session import EventSink, Session
 from tally.wallet import Approver, BudgetNode, BudgetRefused
 
 COMPARABLES_SHARE = 0.25  # of the budget, set aside so comparables never eat into claim checks
@@ -73,7 +73,7 @@ class MemoResult:
     log: list[str] = field(default_factory=list)
 
 
-class DiligenceRun(Run):
+class DiligenceRun(Session):
     def __init__(self, settings: Settings, deck: Deck | None, budget: float, minutes: float,
                  founders: list[str] | None = None, domain: str | None = None, run_id: str | None = None,
                  transport: httpx.AsyncBaseTransport | None = None, approver: Approver | None = None,
@@ -81,7 +81,8 @@ class DiligenceRun(Run):
                  ledger: Ledger | None = None):
         label = f"Deck check: {deck.name}" if deck else "Deck check"
         super().__init__(settings, label, budget, minutes, run_id=run_id, transport=transport, approver=approver,
-                         on_event=on_event, brain=brain, today=today, ledger=ledger, planner=DiligencePlanner)
+                         on_event=on_event, brain=brain, today=today, ledger=ledger)
+        self.planner = DiligencePlanner(self.prices, self.today)
         self.buyer = DeckBuyer(self.wallet, self.client, self.prices, self.ledger)
         self.deck = deck or self._saved_deck()
         if self.deck is None:

@@ -2,7 +2,7 @@
 
 **Every claim in a pitch deck checked against outside records before the second meeting, with a receipt for each verdict, inside a budget the partner sets.**
 
-ContextCon 05, BITS Pilani · Theme 2, Investing · Statement 2.2, The Diligence Desk. It is built on Tally's spending engine (from statement 7.1, which stays in the product as a second job type).
+ContextCon 05, BITS Pilani · Theme 2, Investing · Statement 2.2, The Diligence Desk. It runs on a spending engine (`tally/session.py`, `wallet.py`, `ledger.py`, `recovery.py`) that puts a hard ceiling, receipts and crash recovery under every purchase.
 
 ## The service
 
@@ -56,7 +56,7 @@ Diligence teams at funds and advisory firms earn a fee for this job today. After
 ```bash
 uv sync
 cp .env.example .env        # fill in CRUSTDATA_API_KEY, ANTHROPIC_API_KEY and TALLY_INR_PER_USD
-uv run tally check          # first live call: about 0.45 credits, checks the response shapes
+uv run tally check          # first live call: about 2.2 credits, checks the response shapes (--full: about 5 more)
 uv run tally serve          # the desk at http://localhost:8000, the phone dial at /phone?run=<id>
 ```
 
@@ -110,13 +110,15 @@ flowchart LR
 | `tally/diligence/claims.py` | One rule per claim kind, with tolerances. Only a present record contradicts |
 | `tally/diligence/probes.py` | Identify (domain and name), company record, job posts, founder record, web search, comparables; lookalike-domain check |
 | `tally/diligence/planner.py` | Materiality × chance it settles × how unsettled, per credit |
-| `tally/diligence/run.py` | One deck start to finish, on the research job's `Run` (resume, wallet, ledger, top-up) |
+| `tally/diligence/run.py` | One deck start to finish, on `tally/session.py` (resume, wallet, ledger, top-up) |
 | `tally/diligence/memo.py` | The memo, receipts, questions and the approval binding |
 | `tally/diligence/evaluate.py` | Scores memos against a sealed answer file |
 | `tally/crust/schema.py` | The one place Crustdata's JSON is read |
+| `tally/session.py`, `tally/probes.py` | What every paid job shares: run record, resume, the one place a purchase happens |
 | `tally/wallet.py`, `tally/ledger.py`, `tally/recovery.py` | The spending engine: ceiling, cut, kill, approvals, hash-chained ledger, crash reconciliation |
-| `tally/llm.py` | The only model calls: reading the deck (Opus, structured output, server-side fallbacks on) and, for 7.1, borderline titles (Haiku). A model never sets a verdict |
-| `tally/static/memo.html`, `tally/api.py` | The desk; `/phone` is the dial |
+| `tally/llm.py` | The only model call: reading the deck (Opus, structured output, server-side fallbacks on). A model never sets a verdict |
+| `tally/static/memo.html`, `tally/api.py`, `tally/events.py` | The desk; `/phone` is the dial |
+| `tally/check.py` | `tally check`: the first live calls, confirming the response shapes |
 
 ## Sources and costs
 
@@ -134,7 +136,7 @@ flowchart LR
 
 - **Who buys it:** diligence teams at funds and advisory firms, today done by analysts over a day or two per deck.
 - **Cost of one memo:** about 5–15 credits (about $1.50–$4.50 at the event's $0.30 a credit) plus about ₹2 of model tokens. The quote shows both in rupees.
-- **Price:** 3× our cost (`PRICE_MULTIPLE` in `tally/quoter.py`), so about ₹400–1,200 a memo.
+- **Price:** 3× our cost (`PRICE_MULTIPLE` in `tally/config.py`), so about ₹400–1,200 a memo.
 
 ## Approaches considered
 
@@ -151,11 +153,3 @@ flowchart LR
 - **Founders with common names:** matched by company id, never by name alone.
 - **A deck that rounds up:** tolerances per claim kind, shown in the reason ("the deck rounds up").
 - **A new hire burst after the headcount record:** a newer job post stating the team size shows as records disagree, with both dates.
-
----
-
-## The same engine also buys lists (statement 7.1)
-
-`uv run tally run "Find the head of engineering at 60 Indian fintech companies with 50-500 people" --budget 400`, or open `/research` on the desk.
-
-It quotes from 5 pilot companies, buys the purchase with the most expected answer value per credit, and returns a sourced answer per company. Its statuses are confirmed, probable, conflict, can't verify, held and not reached. You can top up, audit a simulated vendor, and give any MCP agent a capped wallet: `claude mcp add tally-wallet -- uv --directory <repo> run tally wallet --cap 20`. Its tests are in `tests/test_run.py`, `tests/test_wallet.py` and `tests/test_recovery.py`.

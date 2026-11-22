@@ -2,8 +2,8 @@
 
     uv run tally serve              then open http://localhost:8000
 
-Flow: POST a job -> the quote appears -> Accept -> the run (and, if asked, the
-race against the naive buyer) streams live -> receipts and the audit screen.
+Flow: POST a deck -> the quote appears -> Accept -> the checks stream live -> the memo with a
+receipt per claim -> the partner approves the founders' questions -> the audit screen.
 """
 
 from __future__ import annotations
@@ -28,12 +28,8 @@ from tally.diligence.memo import as_dict as memo_dict
 from tally.diligence.run import DiligenceRun, MemoResult
 from tally.events import EventHub
 from tally.ledger import Ledger
-from tally.planner import EnrichEverything
-from tally.race import scoreboard
 from tally.recovery import account_balance
-from tally.report import bill, receipt
-from tally.runner import Run, RunResult, new_run_id
-from tally.vendor import audit_offer, make_offer
+from tally.session import new_run_id
 from tally.wallet import ApprovalRequest
 
 STATIC = Path(__file__).parent / "static"
@@ -63,13 +59,6 @@ class WebApprover:
             return False
         future.set_result(approve)
         return True
-
-
-class JobRequest(BaseModel):
-    job: str
-    budget: float
-    minutes: float = 20
-    race: bool = True
 
 
 class MemoRequest(BaseModel):
@@ -107,22 +96,10 @@ class Desk:
         self.hub = EventHub()
         self.ledger = Ledger(settings.data_dir / "ledger.sqlite")
         self.world = FakeCrustdata() if settings.mode == "fake" else None  # one shared offline world
-        self.runs: dict[str, Run] = {}
+        self.runs: dict[str, DiligenceRun] = {}
         self.approvers: dict[str, WebApprover] = {}
-        self.results: dict[str, RunResult] = {}
+        self.results: dict[str, MemoResult] = {}
         self.audits: dict[str, dict] = {}
-        self.wants_race: dict[str, bool] = {}
-
-    def make_run(self, job_text: str, budget: float, minutes: float, run_id: str | None = None,
-                 planner=None) -> Run:
-        run_id = run_id or new_run_id()
-        approver = WebApprover(self.hub, run_id)
-        kwargs = {"planner": planner} if planner else {}
-        run = Run(self.settings, job_text, budget, minutes, run_id=run_id, ledger=self.ledger,
-                  transport=self.world.transport() if self.world else None, approver=approver,
-                  on_event=self.hub.sink(run_id), **kwargs)
-        self.runs[run_id], self.approvers[run_id] = run, approver
-        return run
 
     def make_memo(self, request: "MemoRequest") -> DiligenceRun:
         run_id = new_run_id()
@@ -133,7 +110,6 @@ class Desk:
                            transport=self.world.transport() if self.world else None, approver=approver,
                            on_event=self.hub.sink(run_id))
         self.runs[run_id], self.approvers[run_id] = run, approver
-        self.wants_race[run_id] = False
         return run
 
     def in_background(self, run_id: str, work) -> None:
@@ -148,24 +124,15 @@ class Desk:
 
         task.add_done_callback(report_failure)
 
-    def run(self, run_id: str) -> Run:
+    def run(self, run_id: str) -> DiligenceRun:
         if run_id not in self.runs:
             raise HTTPException(404, f"no run {run_id} in this server")
         return self.runs[run_id]
 
     async def deliver(self, run_id: str) -> None:
-        run = self.run(run_id)
-        jobs = [run.deliver()]
-        if self.wants_race.get(run_id):
-            naive = self.make_run(run.job_text, run.wallet.root.limit, run.wallet.seconds_left() / 60,
-                                  run_id=f"{run_id}-baseline", planner=EnrichEverything)
-            jobs.append(naive.execute())
-        results = await asyncio.gather(*jobs)
-        self.audits[run_id] = await self.balance_audit(run_id, [r.run_id for r in results])
-        for result in results:
-            self.results[result.run_id] = result
-        if len(results) == 2:
-            self.hub.publish(run_id, "scoreboard", scoreboard(*results))
+        result = await self.run(run_id).deliver()
+        self.audits[run_id] = await self.balance_audit(run_id)
+        self.results[run_id] = result
 
     async def top_up(self, run_id: str, credits: float) -> None:
         """More credits after the result: the run continues, then report and audit are redone."""
@@ -173,22 +140,20 @@ class Desk:
         self.results.pop(run_id, None)  # the screens wait for the new result
         self.audits.pop(run_id, None)
         result = await run.top_up(credits)
-        lanes = [run_id] + ([f"{run_id}-baseline"] if f"{run_id}-baseline" in self.runs else [])
-        self.audits[run_id] = await self.balance_audit(run_id, lanes)
+        self.audits[run_id] = await self.balance_audit(run_id)
         self.results[run_id] = result
 
-    async def balance_audit(self, run_id: str, run_ids: list[str]) -> dict:
-        """Ledger against Crustdata's balance since `run_id` started. Raced runs share one
-        account, so both lanes' ledgers are added together."""
+    async def balance_audit(self, run_id: str) -> dict:
+        """The run's ledger against the drop in Crustdata's balance since it started."""
         start = self.ledger.run(run_id)["details"].get("starting_balance")
         client = CrustClient(self.settings, transport=self.world.transport() if self.world else None)
         try:
             now = await account_balance(client)
         finally:
             await client.aclose()
-        ledger_credits = round(sum(self.ledger.credits_charged(r) for r in run_ids), 6)
+        ledger_credits = round(self.ledger.credits_charged(run_id), 6)
         drop = None if start is None or now is None else round(start - now, 6)
-        return {"runs": run_ids, "ledger_credits": ledger_credits, "balance_drop": drop,
+        return {"run": run_id, "ledger_credits": ledger_credits, "balance_drop": drop,
                 "matches": None if drop is None else abs(ledger_credits - drop) < 0.005}
 
 
@@ -200,10 +165,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/")
     async def desk_page():
         return FileResponse(STATIC / "memo.html")
-
-    @app.get("/research")
-    async def research_page():
-        return FileResponse(STATIC / "desk.html")
 
     @app.post("/api/memos")
     async def start_memo(request: MemoRequest):
@@ -236,13 +197,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Mode (for the REPLAY / FAKE banner) and the address phones on the same Wi-Fi can use."""
         return {"mode": desk.settings.mode, "lan_url": f"http://{_lan_ip()}:8000"}
 
-    @app.post("/api/jobs")
-    async def start_job(request: JobRequest):
-        run = desk.make_run(request.job, request.budget, request.minutes)
-        desk.wants_race[run.run_id] = request.race
-        desk.in_background(run.run_id, run.quote())
-        return {"run_id": run.run_id}
-
     @app.post("/api/jobs/{run_id}/accept")
     async def accept(run_id: str):
         desk.run(run_id)
@@ -255,7 +209,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         record = desk.ledger.run(run_id)
         if record is None:
             raise HTTPException(404, f"no run {run_id} in the ledger")
-        run = desk.make_run(record["job_text"], record["credit_limit"], 0, run_id=run_id)
+        run = DiligenceRun(desk.settings, None, record["credit_limit"], 0, run_id=run_id, ledger=desk.ledger,
+                           transport=desk.world.transport() if desk.world else None,
+                           approver=WebApprover(desk.hub, run_id), on_event=desk.hub.sink(run_id))
+        desk.runs[run_id], desk.approvers[run_id] = run, run.wallet.approver
 
         async def quote_then_deliver():
             await run.quote()
@@ -283,16 +240,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         desk.in_background(run_id, desk.top_up(run_id, request.credits))
         return {"ok": True}
 
-    @app.post("/api/jobs/{run_id}/vendor")
-    async def vendor(run_id: str):
-        """A simulated vendor pitches a list; Tally audits a sample against its own receipts."""
-        if run_id not in desk.results:
-            raise HTTPException(409, "the vendor pitches after the run has finished")
-        answers = desk.results[run_id].answers
-        audit = audit_offer(make_offer(answers), answers).as_dict()
-        desk.ledger.update_run(run_id, vendor_audit=audit)
-        return audit
-
     @app.post("/api/jobs/{run_id}/kill")
     async def kill(run_id: str):
         desk.run(run_id).wallet.kill(actor="phone")
@@ -310,14 +257,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"limit": wallet.root.limit, "spent": wallet.spent(), "seconds_left": wallet.seconds_left(),
                 "killed": wallet.killed, "tree": wallet.root.as_dict()}
 
-    @app.get("/api/jobs/{run_id}/report")
-    async def report(run_id: str):
-        result = desk.results.get(run_id)
-        if result is None:
-            raise HTTPException(409, "the run hasn't finished")
-        return {"bill": bill(result, desk.ledger, desk.settings),
-                "rows": [receipt(a, desk.ledger) for a in result.answers]}
-
     @app.get("/api/jobs/{run_id}/audit")
     async def audit(run_id: str):
         run = desk.run(run_id)
@@ -326,8 +265,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         chain = desk.ledger.verify_chain()
         return {**desk.audits[run_id], "chain_ok": chain.ok, "entries": chain.entries,
                 "first_bad_entry": chain.first_bad_seq, "tally_credits": desk.ledger.credits_charged(run_id),
-                "quote": (run.quote_card if isinstance(run.quote_card, dict) or run.quote_card is None
-                          else run.quote_card.as_dict()),
+                "quote": run.quote_card,
                 "entries_for_run": desk.ledger.entries(run_id)[-200:]}
 
     @app.get("/api/events")

@@ -20,3 +20,6 @@ Written with an AI coding assistant, and tested only against an offline stand-in
 
 ## Done after 10:15
 Everything in the git history after the first commit: the first live calls, fixes to response shapes, live test cases and results, the demo video.
+
+## After 10:15: the switch to 2.2
+At about 1 PM the project moved from statement 7.1 (The Research Buyer) to 2.2 (The Diligence Desk), keeping the spending engine (wallet, ledger, recovery, Crustdata client). The 7.1-only code and the two design documents above were removed from the tree at the end of the day so the repo shows only what is submitted; they remain in the git history (first commit `ca93f82`).

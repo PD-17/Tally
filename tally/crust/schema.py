@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tally.models import Candidate, Company
+from tally.models import Company
 
 
 def dig(node: Any, path: str, default: Any = None) -> Any:
@@ -31,24 +31,6 @@ def current_role(profile: dict) -> dict:
         main = [job for job in current if job.get("is_default")] or current
         return main[0] if main else {}
     return current or {}
-
-
-def candidate_from_profile(profile: dict) -> Candidate:
-    """A person-search profile or person-enrich record, reduced to what the job needs.
-
-    Emails, phone numbers and everything else are deliberately left behind.
-    """
-    role = current_role(profile)
-    return Candidate(
-        person_id=profile.get("crustdata_person_id"),
-        name=dig(profile, "basic_profile.name", ""),
-        title=role.get("title") or dig(profile, "basic_profile.current_title", ""),
-        company_id=role.get("crustdata_company_id") or role.get("company_id"),
-        start_date=_date_only(role.get("start_date")),
-        profile_url=dig(profile, "social_handles.professional_network_identifier.profile_url"),
-        updated_at=dig(profile, "metadata.updated_at") or profile.get("updated_at")
-        or dig(profile, "basic_profile.last_updated"),
-    )
 
 
 def company_from_record(record: dict) -> Company:
@@ -81,40 +63,6 @@ def identified(body: list[dict]) -> list[tuple[str, Company | None]]:
     return results
 
 
-def enriched_leaders(body: list[dict]) -> dict[int, list[Candidate]]:
-    """Company Enrich `people` groups: company id -> its founders, CXOs and decision makers."""
-    leaders: dict[int, list[Candidate]] = {}
-    for entry in body or []:
-        for match in entry.get("matches") or []:
-            data = match.get("company_data") or {}
-            company_id = data.get("crustdata_company_id")
-            people = data.get("people") or {}
-            seen, found = set(), []
-            for group in ("cxos", "decision_makers", "founders"):
-                for person in people.get(group) or []:
-                    pid = person.get("crustdata_person_id")
-                    if pid in seen:
-                        continue
-                    seen.add(pid)
-                    found.append(Candidate(
-                        person_id=pid, name=dig(person, "basic_profile.name", ""),
-                        title=dig(person, "basic_profile.current_title", ""), company_id=company_id,
-                        start_date=None, profile_url=None, updated_at=dig(data, "metadata.updated_at"),
-                    ))
-            if company_id is not None:
-                leaders[int(company_id)] = found
-    return leaders
-
-
-def enriched_person(body: list[dict]) -> Candidate | None:
-    """Person Enrich: the matched person, or None when not found."""
-    for entry in body or []:
-        for match in entry.get("matches") or []:
-            if match.get("person_data"):
-                return candidate_from_profile(match["person_data"])
-    return None
-
-
 def web_results(body: dict) -> list[dict]:
     """Web Search results: title, url and snippet (the docs show no published date)."""
     return [{"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("snippet", "")}
@@ -125,7 +73,7 @@ def _date_only(value: str | None) -> str | None:
     return value[:10] if value else None
 
 
-# ----- diligence: the company profile, founders' history, job posts, comparables -----
+# ----- the company profile, founders' history, job posts, comparables -----
 # Field names from this key's `/account/endpoints` field list (saved by `tally check`). Readers
 # accept the variants seen across endpoints (company-enrich people use employer_name/employee_title;
 # person enrich uses name/title).

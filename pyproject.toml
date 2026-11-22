@@ -1,7 +1,7 @@
 [project]
 name = "tally"
 version = "0.1.0"
-description = "A research analyst that quotes, delivers and itemises, and can't overspend."
+description = "Diligence Desk: every pitch-deck claim checked against records, inside a budget."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,7 +12,6 @@ dependencies = [
     "uvicorn>=0.30",
     "sse-starlette>=2.1",
     "python-dotenv>=1.0",
-    "mcp>=1.2,<2",
     "pypdf>=7.1.1",
 ]
 

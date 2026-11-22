@@ -19,11 +19,11 @@ Mode = Literal["live", "record", "replay", "fake"]
 # Anthropic SDK docs for these model ids.
 MODEL_PRICES_USD_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-opus-5-5": (4.00, 20.00),
-    "claude-haiku-5-5": (0.10, 0.50),
 }
 
-SMART_MODEL = "claude-opus-5-5"  # reading the job, unclear matches, the summary
-FAST_MODEL = "claude-haiku-5-5"  # bulk title checks
+SMART_MODEL = "claude-opus-5-5"  # reading the deck
+
+PRICE_MULTIPLE = 3.0  # price = cost to serve x this; set by the business, shown on the quote
 
 
 @dataclass(frozen=True)
