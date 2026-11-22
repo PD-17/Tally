@@ -144,6 +144,10 @@ uv run pytest                                     # 48 tests, all offline
 
 Containers, the trust boundary around the deck, and the two external services. Solid arrows are calls; dotted arrows are callbacks and events.
 
+[![Tally system architecture](docs/architecture.png)](docs/architecture.png)
+
+The same diagram as Mermaid source:
+
 ```mermaid
 flowchart TB
   subgraph Clients["Clients"]
