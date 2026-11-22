@@ -69,6 +69,9 @@ class CompanyProfile:
     city: str | None = None
     country: str | None = None
     headquarters: str | None = None
+    addresses: list[str] = field(default_factory=list)  # street address and every office address
+    regions: list[str] = field(default_factory=list)  # where its people are (headcount by region)
+    industry: str | None = None
     revenue_low_usd: float | None = None
     revenue_high_usd: float | None = None
     record_date: str | None = None

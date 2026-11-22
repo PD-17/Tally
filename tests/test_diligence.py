@@ -168,3 +168,59 @@ async def test_the_eval_scores_a_sealed_style_answer_file(settings, tmp_path, ca
     assert await evaluate(settings, tmp_path / "answers.json") == 0
     out = capsys.readouterr().out
     assert "altered claims contradicted: 2/2" in out
+
+
+# ----- regressions found on the first live sealed-style deck (generic, made-up data) -----
+
+from tally.diligence.claims import claimed_multiple  # noqa: E402
+from tally.diligence.deck import checkable, is_person_name, looks_like_name  # noqa: E402
+from tally.diligence.evidence import Round, WebFinding  # noqa: E402
+
+
+def test_plans_and_slogans_are_not_claims_to_check():
+    claims = [make_claim(ClaimKind.LAST_ROUND, "Raising a $60M Series C", 9, subject="Series C"),
+              make_claim(ClaimKind.OTHER_METRIC, "300+ lenders by 2028", 9, number=300),
+              make_claim(ClaimKind.INVESTOR, "Backed by India's leading fintech investors", 8,
+                         subject="India's leading fintech investors"),
+              make_claim(ClaimKind.INVESTOR, "ROUND DATE AMOUNT LED BY WITH", 7, subject="WITH"),
+              make_claim(ClaimKind.INVESTOR, "Backed by GGV Capital", 8, subject="GGV Capital"),
+              make_claim(ClaimKind.FOUNDED, "Founded in 2015", 1, number=2015)]
+    kept, dropped = checkable(claims)
+    assert [c.subject or c.number for c in kept] == ["GGV Capital", 2015]
+    assert len(dropped) == 4
+    assert looks_like_name("NEA") and looks_like_name("Peak XV Partners") and not looks_like_name("LED BY")
+    assert is_person_name("Asha Rao") and not is_person_name("IIT Kharagpur (B")
+
+
+def test_a_web_page_confirms_a_figure_only_if_it_states_it():
+    ev = Evidence(profile=profile(), web={0: WebFinding([
+        {"title": "Acme raises funding", "snippet": "Acme is a fast-growing lending startup in Bengaluru.",
+         "url": "https://x.test/1"}], "k")})
+    vague = make_claim(ClaimKind.OTHER_METRIC, "15M+ credit decisions a month", 4, number=15e6)
+    assert judge(vague, 0, ev).verdict is Verdict.CANT_VERIFY
+    ev.web[0].results.append({"title": "Acme crosses a milestone", "snippet": "Acme now runs 15 million credit "
+                              "decisions a month.", "url": "https://x.test/2"})
+    assert judge(vague, 0, ev).verdict is Verdict.CONFIRMED
+    nothing_specific = make_claim(ClaimKind.CUSTOMER, "Trusted by lenders", 4, subject="Acme")
+    assert judge(nothing_specific, 0, ev).verdict is Verdict.CANT_VERIFY
+
+
+def test_growth_is_compared_over_twelve_months_as_a_percentage():
+    claim = make_claim(ClaimKind.HEADCOUNT_GROWTH, "+31% team growth in the last 12 months", 5, number=31)
+    assert claimed_multiple(claim) == pytest.approx(1.31)
+    assert judge(claim, 0, Evidence(profile=profile(growth_12m_pct=31.1))).verdict is Verdict.CONFIRMED
+    series = [("2021-03-01", 30), ("2025-11-03", 300), ("2026-11-02", 395)]  # 5 years of history, +32% this year
+    assert judge(claim, 0, Evidence(profile=profile(headcount_series=series))).verdict is Verdict.CONFIRMED
+    assert judge(claim, 0, Evidence(profile=profile(growth_12m_pct=5.0))).verdict is Verdict.CONTRADICTED
+
+
+def test_locations_match_the_full_address_city_aliases_and_country_codes():
+    p = profile(city="Koramangala VI Bk", country="IND", headquarters="Koramangala VI Bk, Karnātaka, India",
+                addresses=["12, 1st Main, HSR Layout, Bengaluru, Karnataka 560102"],
+                regions=["Bengaluru", "Chennai", "New Delhi", "Mumbai"])
+    ev = Evidence(profile=p)
+    for subject in ("Bengaluru", "Bangalore", "HSR Layout, Bengaluru", "India", "Delhi NCR and Chennai"):
+        claim = make_claim(ClaimKind.LOCATION, f"Based in {subject}", 1, subject=subject)
+        assert judge(claim, 0, ev).verdict is Verdict.CONFIRMED, subject
+    assert judge(make_claim(ClaimKind.LOCATION, "HQ in Singapore", 1, subject="Singapore"), 0,
+                 ev).verdict is Verdict.CONTRADICTED

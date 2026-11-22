@@ -12,7 +12,7 @@ from tally.probes import Bought, Buyer
 from tally.wallet import BudgetNode
 
 PROFILE_FIELDS = ["basic_info", "headcount", "funding", "people", "competitors", "locations", "metadata",
-                  "hiring.openings_count", "revenue", "news"]
+                  "hiring.openings_count", "revenue", "news", "taxonomy"]
 PERSON_HISTORY_FIELDS = ["basic_profile", "experience", "education", "social_handles", "metadata"]
 COMPARABLE_FIELDS = ["crustdata_company_id", "basic_info", "headcount", "funding", "metadata"]
 JOB_FIELDS = ["crustdata_job_id", "job_details", "metadata", "content", "company.basic_info"]
@@ -86,37 +86,51 @@ class DeckBuyer(Buyer):
         return Bought(WebFinding(schema.web_results(bought.value), bought.call_key), bought.call_key,
                       bought.credits, bought.request_id)
 
-    async def comparables(self, node: BudgetNode, company: CompanyProfile,
-                          industry: str | None) -> Bought[list[Comparable]]:
-        """Five comparable companies with dated headcount and funding: the company's own competitor list
-        if it has one (cheap: filtered by id), else the same industry, country and size band."""
-        if company.competitor_ids:
-            ids = sorted(company.competitor_ids)[:COMPARABLES]
-            body = {"filters": {"field": "crustdata_company_id", "type": "in", "value": ids},
-                    "limit": len(ids), "fields": COMPARABLE_FIELDS}
-            cost = self.prices.company_fields(len(ids), ["headcount", "funding"])
-            why = f"comparables: {len(ids)} competitors on {company.name}'s record"
-        elif company.competitor_domains:
-            domains = company.competitor_domains[:8]
-            body = {"filters": {"field": "basic_info.primary_domain", "type": "in", "value": domains},
-                    "limit": COMPARABLES, "fields": COMPARABLE_FIELDS}
-            cost = self.prices.company_fields(COMPARABLES, ["headcount", "funding"])
-            why = f"comparables: competitors of {company.name} by domain"
+    async def comparables(self, node: BudgetNode, company: CompanyProfile, similar: bool = False,
+                          skip: set | None = None, budget: float | None = None) -> Bought[list[Comparable]]:
+        """Comparable companies with dated headcount and funding. First the company's own competitors on
+        record (cheap: filtered by id or domain, and only exact matches kept); with `similar`, companies
+        in the same industry, country and size band, as many as `budget` allows."""
+        skip = set(skip or ()) | {company.company_id}
+        if not similar:
+            if company.competitor_ids:
+                wanted = sorted(company.competitor_ids)[:COMPARABLES]
+                flt = {"field": "crustdata_company_id", "type": "in", "value": wanted}
+            else:
+                wanted = company.competitor_domains[:8]
+                flt = {"field": "basic_info.primary_domain", "type": "in", "value": wanted}
+            body = {"filters": flt, "limit": min(len(wanted), COMPARABLES), "fields": COMPARABLE_FIELDS}
+            cost = self.prices.company_fields(body["limit"], ["headcount", "funding"])
+            why = f"comparables: {len(wanted)} competitors on {company.name}'s record"
         else:
             size = company.headcount or 50
             conditions = [{"field": "headcount.total", "type": "=>", "value": max(1, size // 3)},
                           {"field": "headcount.total", "type": "=<", "value": size * 3}]
+            groups = ["headcount", "funding"]
             if company.country:
                 conditions.append({"field": "locations.country", "type": "=", "value": company.country})
-            if industry:
-                conditions.append({"field": "taxonomy.professional_network_industry", "type": "=", "value": industry})
-            body = {"filters": {"op": "and", "conditions": conditions}, "limit": COMPARABLES + 1,
-                    "fields": COMPARABLE_FIELDS}
-            cost = self.prices.company_search(COMPARABLES + 1, ["taxonomy", "headcount", "funding"])
+            if company.industry:
+                conditions.append({"field": "taxonomy.professional_network_industry", "type": "=",
+                                   "value": company.industry})
+                groups.append("taxonomy")
+            per = self.prices.company_search(1, groups)
+            limit = min(COMPARABLES + 1, int((budget if budget is not None else per * 6) // per))
+            if limit < 1:
+                return Bought([], "", 0.0, None)
+            body = {"filters": {"op": "and", "conditions": conditions}, "limit": limit, "fields": COMPARABLE_FIELDS}
+            cost = self.prices.company_search(limit, groups)
             why = f"comparables: companies like {company.name} by industry, country and size"
         bought = await self._buy(node, "/company/search", body, cost, why)
-        found = [c for c in schema.comparables(bought.value) if c.company_id != company.company_id][:COMPARABLES]
-        return Bought(found, bought.call_key, bought.credits, bought.request_id)
+        found = [c for c in schema.comparables(bought.value) if c.company_id not in skip]
+        if not similar and not company.competitor_ids:  # the domain filter can match loosely: keep exact ones
+            wanted_domains = {_bare(d) for d in company.competitor_domains[:8]}
+            found = [c for c in found if c.domain and _bare(c.domain) in wanted_domains]
+        unique = list({(c.company_id, c.domain): c for c in found}.values())[:COMPARABLES]
+        return Bought(unique, bought.call_key, bought.credits, bought.request_id)
+
+
+def _bare(domain: str) -> str:
+    return domain.lower().strip().removeprefix("https://").removeprefix("http://").removeprefix("www.").split("/")[0]
 
 
 def _same_name(a: str, b: str) -> bool:

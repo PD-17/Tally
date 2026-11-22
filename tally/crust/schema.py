@@ -99,7 +99,8 @@ def company_profile(body: list[dict], call_key: str | None = None, request_id: s
     series = sorted(((_date_only(p.get("date")) or "", int(p.get("employee_count") or 0))
                      for p in _as_list(dig(data, "headcount.timeseries")) if p.get("employee_count") is not None))
     growth = dig(data, "headcount.growth_percent")
-    growth_12m = _float(growth.get("12m")) if isinstance(growth, dict) else None
+    growth_12m = next((_float(growth[k]) for k in ("yoy", "12m", "one_year", "1y") if isinstance(growth, dict)
+                       and growth.get(k) is not None), None)
     people = data.get("people") or {}
     record_date = dig(data, "metadata.updated_at") or data.get("updated_at")
     ref = request_id or info.get("professional_network_url") or f"company {data.get('crustdata_company_id')}"
@@ -124,11 +125,30 @@ def company_profile(body: list[dict], call_key: str | None = None, request_id: s
         city=dig(data, "locations.city"), country=dig(data, "locations.country"),
         headquarters=dig(data, "locations.headquarters") if isinstance(dig(data, "locations.headquarters"), str)
         else None,
+        addresses=_addresses(data.get("locations") or {}),
+        regions=_regions(dig(data, "headcount.by_region_absolute")),
+        industry=dig(data, "taxonomy.professional_network_industry"),
         revenue_low_usd=_float(dig(data, "revenue.estimated.lower_bound_usd")),
         revenue_high_usd=_float(dig(data, "revenue.estimated.upper_bound_usd")),
         record_date=_date_only(record_date) or (series[-1][0] if series else None), call_key=call_key, ref=ref,
     )
     return profile
+
+
+def _addresses(locations: dict) -> list[str]:
+    out = []
+    for key in ("street_address", "headquarters", "all_office_addresses"):
+        for value in _as_list(locations.get(key)):
+            text = value if isinstance(value, str) else ", ".join(str(v) for v in (value or {}).values() if v)
+            if text:
+                out.append(text)
+    return out
+
+
+def _regions(value) -> list[str]:
+    if isinstance(value, dict):
+        return [str(k) for k, v in value.items() if v]
+    return [str(r.get("region") or r.get("name") or "") for r in _as_list(value) if isinstance(r, dict)]
 
 
 def _competitor_domains(data: dict, info: dict) -> list[str]:

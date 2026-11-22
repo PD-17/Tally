@@ -21,8 +21,8 @@ from tally.config import Settings
 from tally.crust.client import CrustClient
 from tally.crust.errors import BadRequest, EndpointForbidden, OutOfCredits, SourceTimeout
 from tally.diligence.claims import Evidence, Judgement, Verdict, find_person, judge, person_key
-from tally.diligence.deck import Deck, DeckReading, find_instructions, load_deck, merge_readings, quote_in_text, \
-    read_deck_with_rules
+from tally.diligence.deck import Deck, DeckReading, checkable, find_instructions, load_deck, merge_readings, \
+    quote_in_text, read_deck_with_rules
 from tally.diligence.evidence import Comparable
 from tally.diligence.planner import MATERIALITY, Check, ClaimCase, DiligencePlanner
 from tally.diligence.probes import DeckBuyer, domain_check
@@ -99,7 +99,6 @@ class DiligenceRun(Session):
         self.comparables: list[Comparable] = []
         self.comps_node: BudgetNode | None = None
         self.quote_card: dict | None = None
-        self.industry: str | None = None
 
     # ----- the deck on disk, so a restart can carry on -----
 
@@ -165,9 +164,14 @@ class DiligenceRun(Session):
         saved = self.ledger.run(self.run_id)["details"].get("deck_reading")
         if saved:  # a restart: the deck was read (and paid for) already
             return DeckReading.model_validate(saved)
-        rules = read_deck_with_rules(self.deck, founders=self.founder_hint, domain=self.domain_hint)
         model = await self.brain.read_deck(self.deck.pdf, self.deck.pages, self.founder_hint)
+        # The rules reader attributes founder claims by name: the partner's names, else the model's.
+        founders = self.founder_hint or (model.founders if model else [])
+        rules = read_deck_with_rules(self.deck, founders=founders, domain=self.domain_hint)
         reading = merge_readings(model, rules)
+        reading.claims, left_out = checkable(reading.claims)
+        for claim in left_out:
+            self._note(f"left out, not a checkable fact (a plan, or a name that isn't one): \"{claim.text[:80]}\"")
         if self.founder_hint:
             reading.founders = self.founder_hint
         if self.domain_hint:
@@ -236,10 +240,18 @@ class DiligenceRun(Session):
 
     async def _buy_comparables(self) -> None:
         node = self.comps_node or self.wallet.root
+        profile = self.evidence.profile
         try:
-            bought = await self.buyer.comparables(node, self.evidence.profile, self.industry)
-            self.comparables = bought.value
-            self._note(f"{len(self.comparables)} comparables for {bought.credits:.2f} credits")
+            found, spent = [], 0.0
+            if profile.competitor_ids or profile.competitor_domains:
+                bought = await self.buyer.comparables(node, profile, similar=False)
+                found, spent = bought.value, bought.credits
+            if len(found) < 3:  # too few of its own competitors on record: companies like it instead
+                bought = await self.buyer.comparables(node, profile, similar=True, skip={c.company_id for c in found},
+                                                      budget=node.available())
+                found, spent = (found + bought.value)[:5], spent + bought.credits
+            self.comparables = found
+            self._note(f"{len(self.comparables)} comparables for {spent:.2f} credits")
         except BudgetRefused as refused:
             self._note(f"comparables not bought: {refused.reason}")
         except (EndpointForbidden, BadRequest, SourceTimeout) as error:

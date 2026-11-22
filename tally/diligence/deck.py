@@ -251,7 +251,14 @@ def _person_in(sentence: str, founders: list[str]) -> str | None:
 
 def _founders_named(deck: Deck) -> list[str]:
     m = re.search(r"\bfounders?:?\s+(?P<list>[A-Z][^.\n]+)", deck.text)
-    return [n for n in _split_list(m["list"]) if len(n.split()) >= 2] if m else []
+    return [n for n in _split_list(m["list"]) if is_person_name(n)] if m else []
+
+
+def is_person_name(text: str) -> bool:
+    """Two to four capitalised words of letters: "Rajat Deshpande", not "IIT Kharagpur (B"."""
+    words = text.split()
+    return 2 <= len(words) <= 4 and all(re.fullmatch(r"[A-Z][a-z]+(?:[-'][A-Za-z]+)?", w) for w in words) \
+        and not any(w in ("IIT", "IIM", "Co", "Founder", "Founders", "CEO", "CTO") for w in words)
 
 
 def _split_list(text: str) -> list[str]:
@@ -300,6 +307,53 @@ def claim_key(claim: DeckClaim) -> tuple:
     if claim.kind is ClaimKind.FOUNDER_ROLE:
         return claim.kind.value, tuple(person)
     return claim.kind.value, subject, tuple(person)
+
+
+# ----- what counts as a checkable claim --------------------------------------------------
+
+FORWARD_LOOKING = re.compile(
+    r"\b(?:raising|to raise|will|plan(?:s|ned|ning)?|aim(?:s|ing)?|target(?:s|ing)?|expect(?:s|ed|ing)?|"
+    r"project(?:s|ed|ion)|forecast|goal|roadmap|by (?:fy)?20\d\d|in the next \d+|next round|"
+    r"going to|intend(?:s|ing)?)\b", re.I)
+NOT_A_NAME = {"leading", "top", "best", "marquee", "investors", "investor", "renowned", "prominent", "several",
+              "many", "various", "notable", "others", "undisclosed", "strategic", "angels", "angel investors",
+              "with", "led", "led by", "by", "round", "date", "amount", "and", "n/a", "tbd", "name", "investor name",
+              "customers", "clients", "partners", "brands", "logos", "our", "the"}
+SLOGAN_WORDS = {"leading", "top", "best", "marquee", "investors", "investor", "renowned", "prominent", "several",
+                "many", "various", "notable", "others", "undisclosed", "angels", "world-class", "reputed"}
+TABLE_HEADINGS = {"with", "led", "by", "round", "date", "amount", "and", "name", "type", "stage", "year", "investors",
+                  "investor", "lead", "co-investors", "participation"}
+NAMED_KINDS = (ClaimKind.INVESTOR, ClaimKind.CUSTOMER, ClaimKind.PARTNER_OR_AWARD)
+
+
+def is_forward_looking(claim: DeckClaim) -> bool:
+    """A plan isn't a fact: "raising a Series C", "300+ lenders by 2028"."""
+    return bool(FORWARD_LOOKING.search(claim.text))
+
+
+def looks_like_name(subject: str | None) -> bool:
+    """An investor, customer or partner must be named: not a slogan or a table heading."""
+    if not subject:
+        return False
+    words = re.findall(r"[\w'&.-]+", subject.lower())
+    if not words or len(words) > 6 or subject.lower().strip() in NOT_A_NAME:
+        return False
+    if any(w in SLOGAN_WORDS for w in words):
+        return False
+    if words[0] in ("our", "india's", "top", "leading") or set(words) <= TABLE_HEADINGS:
+        return False
+    return bool(re.search(r"[A-Za-z]", subject))
+
+
+def checkable(claims: list[DeckClaim]) -> tuple[list[DeckClaim], list[DeckClaim]]:
+    """(claims to check, claims left out): plans, and names that aren't names, are left out."""
+    kept, dropped = [], []
+    for claim in claims:
+        if is_forward_looking(claim) or (claim.kind in NAMED_KINDS and not looks_like_name(claim.subject)):
+            dropped.append(claim)
+        else:
+            kept.append(claim)
+    return kept, dropped
 
 
 # ----- the two readers together -------------------------------------------------------

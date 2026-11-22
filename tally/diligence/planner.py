@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
-from tally.diligence.claims import Evidence, Judgement, Verdict, find_person, person_key
+from tally.diligence.claims import Evidence, Judgement, Verdict, find_person, names_match, number_pattern, person_key
 from tally.diligence.deck import ClaimKind, DeckClaim
 from tally.prices import PriceBook
 
@@ -98,7 +98,10 @@ class DiligencePlanner:
             checks.append(Check(f"founder:{person_key(name)}", cost, gain, tuple(c.index for c in group),
                                 f"read {name}'s own record"))
         for c in cases:
-            web_worthy = c.claim.kind in WEB_CHANCE and (c.judgement.provisional or c.claim.kind in WEB_ONLY)
+            specific = (c.claim.subject and not names_match(c.claim.subject, ev.profile.name)) \
+                or number_pattern(c.claim.text)
+            web_worthy = c.claim.kind in WEB_CHANCE and (c.judgement.provisional or c.claim.kind in WEB_ONLY) \
+                and (c.claim.kind not in WEB_ONLY or specific)
             if web_worthy and c.index not in ev.web:
                 gain = MATERIALITY[c.claim.kind] * WEB_CHANCE[c.claim.kind] * (1 - c.settled)
                 if c.judgement.verdict is Verdict.CONTRADICTED:

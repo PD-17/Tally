@@ -9,7 +9,9 @@ knows that check is worth buying before the memo calls a founder wrong.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
+from datetime import date
 from enum import Enum
 
 from tally.diligence.deck import ClaimKind, DeckClaim
@@ -193,15 +195,29 @@ def headcount_growth(claim: DeckClaim, index: int, ev: Evidence) -> Judgement:
     if p is None:
         return _not_checked()
     actual = _growth_multiple(p)
-    if actual is None or claim.number is None:
-        return Judgement(Verdict.CANT_VERIFY, "no headcount history on record")
-    src = _profile_source(ev, "headcount.growth_percent.12m", f"{actual:.2f}x in 12 months")
-    if abs(actual - claim.number) <= GROWTH_TOLERANCE * claim.number:
-        return Judgement(Verdict.CONFIRMED, f"the record shows {actual:.1f}x in 12 months", [src])
-    if actual - 1 < (claim.number - 1) / 2:
-        return Judgement(Verdict.CONTRADICTED, f"the deck says {claim.number:g}x; the record shows "
-                                               f"{actual:.1f}x in 12 months", [src])
-    return Judgement(Verdict.CANT_VERIFY, f"the record shows {actual:.1f}x in 12 months", [src])
+    claimed = claimed_multiple(claim)
+    if actual is None or claimed is None:
+        return Judgement(Verdict.CANT_VERIFY, "no headcount history for the last 12 months on record")
+    shown = f"{(actual - 1) * 100:+.0f}% in 12 months ({actual:.2f}x)"
+    src = _profile_source(ev, "headcount.growth_percent.yoy", shown)
+    said = f"{(claimed - 1) * 100:+.0f}%"
+    if abs((actual - 1) - (claimed - 1)) <= GROWTH_TOLERANCE * abs(claimed - 1) + 0.03:
+        return Judgement(Verdict.CONFIRMED, f"the record shows {shown}", [src])
+    if actual - 1 < (claimed - 1) / 2:
+        return Judgement(Verdict.CONTRADICTED, f"the deck says {said}; the record shows {shown}", [src])
+    return Judgement(Verdict.CANT_VERIFY, f"the deck says {said}; the record shows {shown}", [src])
+
+
+def claimed_multiple(claim: DeckClaim) -> float | None:
+    """"+31%" and "1.31x" and "grew 3x" as a multiple (1.31, 1.31, 3)."""
+    if claim.number is None:
+        return None
+    n = claim.number
+    if re.search(r"\d\s*%|percent", claim.text, re.I):
+        return 1 + n / 100 if n >= 2 else n  # 31 (percent) or 1.31 (already a multiple)
+    if re.search(r"\d\s*x\b", claim.text, re.I):
+        return n
+    return 1 + n / 100 if n > 5 else n
 
 
 def funding_total(claim: DeckClaim, index: int, ev: Evidence) -> Judgement:
@@ -383,24 +399,55 @@ def hiring(claim: DeckClaim, index: int, ev: Evidence) -> Judgement:
     return Judgement(Verdict.NOT_CHECKED, "job posts not checked at this budget", provisional=True)
 
 
-COUNTRIES = {"india", "singapore", "united states", "usa", "us", "united kingdom", "uk", "uae", "germany",
-             "indonesia", "australia", "canada"}
+COUNTRY_CODES = {"ind": "india", "in": "india", "usa": "united states", "us": "united states",
+                 "united states of america": "united states", "uk": "united kingdom", "gb": "united kingdom",
+                 "gbr": "united kingdom", "sgp": "singapore", "sg": "singapore", "are": "uae", "ae": "uae",
+                 "united arab emirates": "uae", "deu": "germany", "de": "germany", "idn": "indonesia"}
+COUNTRIES = set(COUNTRY_CODES.values()) | {"australia", "canada", "france", "japan", "netherlands"}
+PLACE_ALIASES = {"bengaluru": ("bengaluru", "bangalore"), "bangalore": ("bengaluru", "bangalore"),
+                 "gurugram": ("gurugram", "gurgaon"), "gurgaon": ("gurugram", "gurgaon"),
+                 "mumbai": ("mumbai", "bombay"), "chennai": ("chennai", "madras"),
+                 "kolkata": ("kolkata", "calcutta"),
+                 "delhi ncr": ("delhi", "new delhi", "gurugram", "gurgaon", "noida", "ncr"),
+                 "ncr": ("delhi", "new delhi", "gurugram", "gurgaon", "noida", "ncr")}
+
+
+def _plain(text: str) -> str:
+    """Lower case, accents off: "Karnātaka" -> "karnataka"."""
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+
+
+def _country(name: str | None) -> str | None:
+    if not name:
+        return None
+    plain = _plain(name).strip()
+    return COUNTRY_CODES.get(plain, plain)
 
 
 def location(claim: DeckClaim, index: int, ev: Evidence) -> Judgement:
+    """Matched against the city, state, country, street and office addresses, and where its people work."""
     p = ev.profile
     if p is None:
         return _not_checked()
-    places = [x for x in (p.city, p.country, p.headquarters) if x]
-    if not places:
+    record = [x for x in (p.city, p.headquarters, p.country) if x] + p.addresses
+    if not record and not p.regions:
         return Judgement(Verdict.CANT_VERIFY, "no location on record")
-    src = _profile_source(ev, "locations", ", ".join(places))
-    said = (claim.subject or "").lower()
-    if any(said and (said in x.lower() or x.lower() in said) for x in places):
-        return Judgement(Verdict.CONFIRMED, f"the record says {', '.join(places)}", [src])
-    if said in COUNTRIES and p.country and p.country.lower() not in (said, "usa" if said == "united states" else ""):
-        return Judgement(Verdict.CONTRADICTED, f"the record says {', '.join(places)}", [src])
-    return Judgement(Verdict.CANT_VERIFY, f"the record says {', '.join(places)}", [src])
+    text = _plain(" | ".join(record))
+    regions = _plain(" | ".join(p.regions))
+    parts = [x.strip() for x in re.split(r",|\band\b|&|/", _plain(claim.subject or "")) if len(x.strip()) >= 3]
+    shown = "; ".join(record[:3])
+    found_in_address = [x for x in parts if any(_has_phrase(text, a) for a in PLACE_ALIASES.get(x, (x,)))]
+    found_in_people = [x for x in parts if x not in found_in_address
+                       and any(_has_phrase(regions, a) for a in PLACE_ALIASES.get(x, (x,)))]
+    if parts and len(found_in_address) + len(found_in_people) == len(parts):
+        sources = [_profile_source(ev, "locations", shown)] if found_in_address else []
+        if found_in_people:
+            sources.append(_profile_source(ev, "headcount.by_region_absolute", ", ".join(p.regions[:8])))
+        return Judgement(Verdict.CONFIRMED, "on record: " + ", ".join(found_in_address + found_in_people), sources)
+    said = _country(claim.subject)
+    if said in COUNTRIES and _country(p.country) and _country(p.country) != said:
+        return Judgement(Verdict.CONTRADICTED, f"the record says {p.country}", [_profile_source(ev, "locations", shown)])
+    return Judgement(Verdict.CANT_VERIFY, f"the record says {shown}", [_profile_source(ev, "locations", shown)])
 
 
 def _web_only(claim: DeckClaim, index: int, ev: Evidence) -> Judgement:
@@ -415,10 +462,11 @@ def _web_only(claim: DeckClaim, index: int, ev: Evidence) -> Judgement:
         if ev.profile is None:
             return _not_checked()
         return Judgement(Verdict.NOT_CHECKED, "a web check wasn't bought at this budget", context, provisional=True)
-    terms = [claim.subject or "", company or ""] if claim.subject else [company or ""]
-    if claim.kind in (ClaimKind.REVENUE, ClaimKind.OTHER_METRIC) and claim.number:
-        terms.append(_short_number(claim.number))
-    found = _web_naming(ev, index, terms)
+    subject = claim.subject if claim.subject and not names_match(claim.subject, company) else None
+    number = number_pattern(claim.text)
+    if not subject and not number:
+        return Judgement(Verdict.CANT_VERIFY, "nothing specific enough to check on the web", context)
+    found = _web_naming(ev, index, [subject or "", company or ""], number=number)
     if found:
         return Judgement(Verdict.CONFIRMED, "a web page says so", [found] + context)
     estimate = " (the revenue estimate is shown for context only)" if context else ""
@@ -484,6 +532,25 @@ def _money(usd: float | None) -> str:
     return f"${usd:.0f}"
 
 
+NUMBER_UNITS = [("%", r"(?:%|percent| per cent)"), ("percent", r"(?:%|percent| per cent)"),
+                ("billion", r"(?:b|bn|billion)\b"), ("bn", r"(?:b|bn|billion)\b"), ("b", r"(?:b|bn|billion)\b"),
+                ("million", r"(?:m|mn|million)\b"), ("mn", r"(?:m|mn|million)\b"), ("m", r"(?:m|mn|million)\b"),
+                ("crore", r"(?:cr|crore)\b"), ("cr", r"(?:cr|crore)\b"), ("lakh", r"lakhs?\b"),
+                ("k", r"(?:k|thousand)\b")]
+
+
+def number_pattern(text: str) -> str | None:
+    """A regex for the first figure in a claim, with its unit: "15M+ decisions" -> 15 (m|mn|million).
+    A page confirms a figure only if it states that figure."""
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(%|percent|billion|bn|million|mn|crore|cr|lakh|[mbk])?(?![\w])?",
+                  text.lower())
+    if not m:
+        return None
+    digits = re.escape(m[1].replace(",", ""))
+    unit = next((pattern for name, pattern in NUMBER_UNITS if m[2] == name), None)
+    return rf"(?<![\d.]){digits}\s*{unit}" if unit else rf"(?<![\d.]){digits}(?![\d.])"
+
+
 def _short_number(n: float) -> str:
     for size, unit in ((1e9, "b"), (1e6, "m"), (1e3, "k")):
         if n >= size:
@@ -492,10 +559,20 @@ def _short_number(n: float) -> str:
 
 
 def _growth_multiple(p: CompanyProfile) -> float | None:
+    """Headcount growth over the last 12 months (never over the company's whole history)."""
     if p.growth_12m_pct is not None:
         return 1 + p.growth_12m_pct / 100
-    if len(p.headcount_series) >= 2 and p.headcount_series[0][1]:
-        return p.headcount_series[-1][1] / p.headcount_series[0][1]
+    if len(p.headcount_series) >= 2:
+        last_date, last = p.headcount_series[-1]
+        try:
+            target = date.fromisoformat(last_date[:10]).toordinal() - 365
+        except ValueError:
+            return None
+        dated = [(abs(date.fromisoformat(d[:10]).toordinal() - target), n) for d, n in p.headcount_series[:-1]
+                 if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d[:10])]
+        gap, then = min(dated, default=(None, None))
+        if gap is not None and gap <= 60 and then:
+            return last / then
     return None
 
 
@@ -517,7 +594,8 @@ def _team_size_in_posts(ev: Evidence, after: str | None, near: float):
     return None
 
 
-def _web_naming(ev: Evidence, index: int, terms: list[str], any_of: tuple[str, ...] = ()) -> Source | None:
+def _web_naming(ev: Evidence, index: int, terms: list[str], any_of: tuple[str, ...] = (),
+                number: str | None = None) -> Source | None:
     finding = ev.web.get(index)
     if finding is None:
         return None
@@ -526,7 +604,7 @@ def _web_naming(ev: Evidence, index: int, terms: list[str], any_of: tuple[str, .
         # every name and the funding word in one sentence: a page that mentions both somewhere proves nothing
         fragments = re.split(r"(?<=[.!?])\s+|\s+[·|—–]\s+|\n+", text)
         if any(all(_mentions(f, t) for t in terms if t) and (not any_of or any(w in f for w in any_of))
-               for f in fragments):
+               and (not number or re.search(number, f)) for f in fragments):
             return Source("web_page", result.get("url", ""), "passage", result.get("snippet", ""),
                           result.get("published"), finding.call_key)
     return None
