@@ -1,4 +1,4 @@
-"""Live events for the screens: the wallet and the runner publish, each open page subscribes."""
+"""Live events for the screens: the wallet and the deck check publish, each open page subscribes."""
 
 from __future__ import annotations
 
