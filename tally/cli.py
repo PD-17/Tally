@@ -34,8 +34,11 @@ def main(argv: list[str] | None = None) -> int:
     wallet.add_argument("--cap", type=float, required=True, help="credits the agent may spend in total")
     wallet.add_argument("--mode", choices=["live", "fake"], help="overrides TALLY_MODE")
 
-    probe = commands.add_parser("check", help="test the live API once the key works (about 0.25 credits)")
+    probe = commands.add_parser("check", help="test the live API once the key works (about 0.45 credits)")
     probe.add_argument("--domain", default="crustdata.com")
+    probe.add_argument("--mode", choices=["live", "fake"], help="fake: a dry run against made-up data, no key needed")
+    probe.add_argument("--full", action="store_true",
+                       help="also try Company Search, Company Enrich and Web Search (about 3.7 credits more)")
 
     commands.add_parser("verify", help="check the ledger's hash chain")
     show = commands.add_parser("ledger", help="print a run's ledger entries")
@@ -60,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "check":
         from tally.check import check
 
-        return 1 if asyncio.run(check(settings, args.domain)) else 0
+        return 1 if asyncio.run(check(settings, args.domain, full=args.full)) else 0
     if args.command == "serve":
         import uvicorn
 

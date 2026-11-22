@@ -57,8 +57,18 @@ def company_from_record(record: dict) -> Company:
     company_id = record.get("crustdata_company_id") or info.get("crustdata_company_id")
     domain = info.get("primary_domain")
     aliases = {a.lower() for a in [info.get("name"), domain, *info.get("all_domains", [])] if a}
+    headcount = dig(record, "headcount.total") or _range_top(info.get("employee_count_range"))
     return Company(company_id=int(company_id), name=info.get("name", f"company {company_id}"),
-                   domain=domain, headcount=dig(record, "headcount.total"), aliases=aliases)
+                   domain=domain, headcount=headcount, aliases=aliases)
+
+
+def _range_top(band: str | None) -> int | None:
+    """Identify gives only a band such as "11-50" (seen live). Its top end is the safe reading:
+    a company counts as small only if even the top of its band is small."""
+    if not band:
+        return None
+    digits = [int(part) for part in band.replace("+", "").replace(",", "").split("-") if part.strip().isdigit()]
+    return max(digits) if digits else None
 
 
 def identified(body: list[dict]) -> list[tuple[str, Company | None]]:

@@ -44,12 +44,26 @@ class PriceBook:
         return self.web_search_page
 
     async def load(self, client) -> None:
-        """Use this key's own base prices where the endpoint list gives them."""
+        """Use this key's own base prices where the endpoint list gives them.
+
+        A listed price only ever raises an estimate, never lowers it: every price here
+        must stay an upper bound, and a lower figure may mean something other than what
+        we assume (per result vs per call, say).
+        """
         endpoints = (await client.get("/account/endpoints")).body.get("endpoints", [])
-        base = {e["path"]: e.get("base_credits") for e in endpoints if e.get("base_credits") is not None}
-        self.person_search_result = base.get("/person/search", self.person_search_result)
-        self.company_search_result = base.get("/company/search", self.company_search_result)
-        self.identify_match = base.get("/company/identify", self.identify_match)
-        self.company_enrich_record = base.get("/company/enrich", self.company_enrich_record)
-        self.person_enrich_record = base.get("/person/enrich", self.person_enrich_record)
-        self.web_search_page = base.get("/web/search/live", self.web_search_page)
+        base = {}
+        for e in endpoints:
+            try:
+                base[e["path"]] = float(e["base_credits"])
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        def higher(path: str, current: float) -> float:
+            return max(current, base.get(path, current))
+
+        self.person_search_result = higher("/person/search", self.person_search_result)
+        self.company_search_result = higher("/company/search", self.company_search_result)
+        self.identify_match = higher("/company/identify", self.identify_match)
+        self.company_enrich_record = higher("/company/enrich", self.company_enrich_record)
+        self.person_enrich_record = higher("/person/enrich", self.person_enrich_record)
+        self.web_search_page = higher("/web/search/live", self.web_search_page)

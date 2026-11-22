@@ -167,6 +167,7 @@ class Run:
         self.wallet.extend(minutes)
         self.client = CrustClient(self.settings, transport=self._transport)  # deliver() closed the last one
         self.buyer.client = self.client
+        await self._load_key_limits()
         self._note(f"topped up by {credits:g} credits and {minutes:g} minutes")
         if not self.cases:  # the budget ran out before there was anything to deliver: start properly
             self.early_stop = None
@@ -175,12 +176,24 @@ class Run:
 
     async def _account_for_the_past(self) -> None:
         """New run: note the starting balance. Resumed run: settle what a crash left in doubt."""
+        await self._load_key_limits()
         if self.resuming:
             for line in await settle_in_doubt(self.ledger, self.client, self.run_id, self.started_at):
                 self._note(f"reconciled after restart: {line}")
         elif "starting_balance" not in self.ledger.run(self.run_id)["details"]:
             self.ledger.update_run(self.run_id, starting_balance=await account_balance(self.client))
         self.wallet.root.spent = self.ledger.credits_charged(self.run_id)  # what earlier attempts already spent
+
+    async def _load_key_limits(self) -> None:
+        """This key's own prices and rate limits, from the free endpoint list. Replay has none saved;
+        if the call fails, the defaults (the docs' list prices) stay."""
+        if self.client.mode == "replay":
+            return
+        try:
+            await self.prices.load(self.client)
+            await self.client.load_rate_limits()
+        except Exception as error:  # a free lookup must never stop a run
+            self._note(f"kept default prices and rate limits: couldn't read /account/endpoints ({error})")
 
     # ----- finding the companies -----
 
