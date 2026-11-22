@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tally Diligence Desk</title>
+<style>
+:root {
+  --bg: #f7f6f2; --panel: #ffffff; --ink: #1c1b19; --muted: #6b6860; --line: #e3e0d8; --accent: #2f5d50;
+  --ok: #2e7d4f; --bad: #b3261e; --warn: #9a6400; --info: #3b5a9a; --chip: #efede7;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141413; --panel: #1d1c1a; --ink: #ecebe6; --muted: #a09d94; --line: #33312d; --accent: #7fb8a4;
+  --ok: #6fcf97; --bad: #f28b82; --warn: #e5b45a; --info: #93b0ec; --chip: #2a2926; } }
+:root[data-theme="dark"] {
+  --bg: #141413; --panel: #1d1c1a; --ink: #ecebe6; --muted: #a09d94; --line: #33312d; --accent: #7fb8a4;
+  --ok: #6fcf97; --bad: #f28b82; --warn: #e5b45a; --info: #93b0ec; --chip: #2a2926; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+header h1 { font-size: 22px; margin: 0; } header a { color: var(--muted); font-size: 13px; }
+.banner { background: var(--warn); color: #fff; padding: 6px 12px; border-radius: 6px; margin-bottom: 12px; display: none; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+section h2 { font-size: 15px; margin: 0 0 10px; color: var(--accent); }
+.hidden { display: none; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+input, button { font: inherit; }
+input[type=text], input[type=number] { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+button { padding: 8px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--panel); cursor: pointer; }
+button.ghost { background: transparent; color: var(--accent); } button.danger { background: var(--bad); border-color: var(--bad); }
+.muted { color: var(--muted); font-size: 13px; }
+.headline { font-size: 16px; }
+.gauge { height: 10px; background: var(--chip); border-radius: 5px; overflow: hidden; margin: 8px 0; } .gauge div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+ul#feed { max-height: 220px; overflow: auto; padding-left: 18px; margin: 8px 0 0; font-size: 13px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.table-wrap { overflow-x: auto; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; white-space: nowrap; background: var(--chip); }
+.v-confirmed { color: var(--ok); } .v-contradicted { color: var(--bad); font-weight: 600; } .v-records_disagree { color: var(--warn); }
+.v-cant_verify { color: var(--info); } .v-not_checked, .v-held { color: var(--muted); }
+.flag { border-left: 4px solid var(--bad); padding: 8px 10px; background: var(--chip); border-radius: 4px; margin: 6px 0; }
+pre { white-space: pre-wrap; background: var(--chip); padding: 10px; border-radius: 6px; font-size: 12px; }
+tr.claim { cursor: pointer; } tr.claim:hover { background: var(--chip); }
+ol#questions li { margin-bottom: 6px; }
+.check { font-weight: 600; } .ok { color: var(--ok); } .notok { color: var(--bad); }
+svg text { fill: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+<main>
+<header><h1>Tally · Diligence Desk</h1><span class="muted">Every pitch-deck claim checked against records, inside a budget the partner sets.</span><a href="/research">Research job (7.1)</a></header>
+<div class="banner" id="banner"></div>
+
+<section id="ask">
+  <h2>1 · The deck</h2>
+  <div class="row">
+    <label>Pitch deck (PDF)<input id="file" type="file" accept=".pdf,.txt,.md"></label>
+    <label>Founders (comma separated)<input id="founders" type="text" size="34" placeholder="Asha Rao, Vik Mehta"></label>
+    <label>Domain (optional)<input id="domain" type="text" size="16" placeholder="acme.in"></label>
+    <label>Budget (credits)<input id="budget" type="number" value="150" min="1" style="width:100px"></label>
+    <label>Minutes<input id="minutes" type="number" value="8" min="1" style="width:80px"></label>
+    <button id="go">Read the deck and quote</button>
+  </div>
+</section>
+
+<section id="attention" class="hidden"><h2>Needs you</h2><div id="approvals"></div><p id="errors" class="notok"></p></section>
+
+<section id="quote" class="hidden">
+  <h2>2 · The quote</h2>
+  <p class="headline" id="headline"></p>
+  <svg id="curve" viewBox="0 0 600 170" width="100%" height="170" role="img" aria-label="Claims checked at each budget"></svg>
+  <div class="row"><button id="accept">Accept and check</button><span class="muted">Accepting approves spending up to the budget.</span></div>
+</section>
+
+<section id="live" class="hidden">
+  <h2>3 · Checking</h2>
+  <div class="gauge"><div id="gauge"></div></div>
+  <p class="muted" id="spend"></p>
+  <div class="row"><button class="ghost" id="halve">Halve the budget</button><button class="danger" id="kill">Kill</button>
+    <span class="muted" id="phone"></span></div>
+  <ul id="feed"></ul>
+</section>
+
+<section id="memo" class="hidden">
+  <h2>4 · The memo</h2>
+  <p id="summary"></p>
+  <div id="flags"></div>
+  <div class="table-wrap"><table><thead><tr><th>The deck says</th><th>Verdict</th><th>Why</th><th>Evidence (dated)</th><th>Credits</th></tr></thead><tbody id="claims"></tbody></table></div>
+  <pre id="receipt" class="hidden"></pre>
+  <h2 style="margin-top:16px">Comparable companies</h2>
+  <div class="table-wrap"><table><thead><tr><th>Company</th><th>Domain</th><th>Headcount</th><th>Total funding</th><th>Last round</th><th>Record dated</th></tr></thead><tbody id="comps"></tbody></table></div>
+  <h2 style="margin-top:16px">Questions for the founders</h2>
+  <ol id="questions"></ol>
+  <div class="row" id="qbuttons"><button id="qapprove">Approve these questions</button><button class="ghost" id="qdeny">Deny</button><span class="muted" id="qstate"></span></div>
+  <div class="row" style="margin-top:12px"><button class="ghost" id="topup">Top up 20 credits</button></div>
+</section>
+
+<section id="audit" class="hidden"><h2>5 · The audit</h2><p class="check" id="balance"></p><p class="muted" id="chain"></p></section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const post = (path, body) => fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) });
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const LABEL = { confirmed: "Confirmed", contradicted: "Contradicted", records_disagree: "Records disagree", cant_verify: "Can't verify", held: "Held", not_checked: "Not checked" };
+let runId = null, lanUrl = "", memoData = null, source = null;
+
+fetch("/api/info").then((r) => r.json()).then((info) => {
+  lanUrl = info.lan_url;
+  if (info.mode === "fake") { $("banner").textContent = "FAKE MODE: made-up offline data, for tests only."; $("banner").style.display = "block"; }
+  if (info.mode === "replay") { $("banner").textContent = "REPLAY: saved responses, not live data."; $("banner").style.display = "block"; }
+});
+
+$("go").onclick = async () => {
+  const file = $("file").files[0];
+  if (!file) { alertBox("Choose a deck first."); return; }
+  const b64 = await new Promise((done) => { const r = new FileReader(); r.onload = () => done(r.result.split(",")[1]); r.readAsDataURL(file); });
+  const body = { deck_b64: b64, filename: file.name, founders: $("founders").value.split(",").map((s) => s.trim()).filter(Boolean),
+                 domain: $("domain").value.trim() || null, budget: +$("budget").value, minutes: +$("minutes").value };
+  const res = await post("/api/memos", body);
+  runId = (await res.json()).run_id;
+  $("phone").textContent = `Phone dial: ${lanUrl}/phone?run=${runId}`;
+  $("feed").innerHTML = ""; ["quote", "live", "memo", "audit"].forEach((s) => $(s).classList.add("hidden"));
+  $("live").classList.remove("hidden");
+  listen();
+};
+
+function alertBox(text) { $("attention").classList.remove("hidden"); $("errors").textContent = text; }
+function note(text) { const li = document.createElement("li"); li.textContent = text; $("feed").prepend(li); }
+
+function listen() {
+  if (source) source.close();
+  source = new EventSource(`/api/events?run_id=${encodeURIComponent(runId)}`);
+  source.onmessage = (m) => {
+    const e = JSON.parse(m.data);
+    if (e.run_id !== runId) return;
+    if (e.kind === "note") note(e.text);
+    if (e.kind === "flag") note("⚑ " + e.text);
+    if (e.kind === "quote") showQuote(e);
+    if (e.kind === "settled") { $("gauge").style.width = `${Math.min(100, 100 * e.spent / e.limit)}%`; $("spend").textContent = `Spent ${e.spent.toFixed(2)} of ${e.limit.toFixed(2)} credits (last: ${e.credits.toFixed(2)} for ${e.endpoint})`; }
+    if (e.kind === "cut") note(`Budget set to ${e.limit.toFixed(2)} by the ${e.actor}`);
+    if (e.kind === "claim" && !$("quote").classList.contains("hidden")) note(`${LABEL[e.verdict]}: ${e.text.slice(0, 70)}`);
+    if (e.kind === "approval") showApproval(e);
+    if (e.kind === "error") alertBox(e.error);
+    if (e.kind === "done") setTimeout(loadMemo, 300);
+  };
+}
+
+function showQuote(q) {
+  $("quote").classList.remove("hidden");
+  $("headline").textContent = q.headline;
+  const pts = q.curve, svg = $("curve"), W = 600, H = 170, P = 30;
+  const maxB = Math.max(q.budget, ...pts.map((p) => p[0])) * 1.05, maxN = Math.max(1, q.claims);
+  const x = (b) => P + (W - 2 * P) * b / maxB, y = (n) => H - P - (H - 2 * P) * n / maxN;
+  let path = pts.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(" ");
+  svg.innerHTML = `<line x1="${P}" y1="${H - P}" x2="${W - P}" y2="${H - P}" stroke="var(--line)"/>
+    <line x1="${x(q.budget)}" y1="${P / 2}" x2="${x(q.budget)}" y2="${H - P}" stroke="var(--warn)" stroke-dasharray="4 3"/>
+    <text x="${x(q.budget) + 4}" y="${P / 2 + 10}">your budget</text>
+    <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    ${pts.map((p) => `<circle cx="${x(p[0])}" cy="${y(p[1])}" r="3" fill="var(--accent)"/>`).join("")}
+    <text x="${P}" y="${H - 8}">credits →</text><text x="4" y="${P}">claims checked</text>
+    <text x="${W - P - 60}" y="${y(maxN) - 4}">${maxN} claims</text>`;
+}
+
+$("accept").onclick = () => { post(`/api/jobs/${runId}/accept`); $("accept").disabled = true; };
+$("halve").onclick = () => post(`/api/jobs/${runId}/cut`, { factor: 0.5 });
+$("kill").onclick = () => post(`/api/jobs/${runId}/kill`);
+$("topup").onclick = () => { post(`/api/jobs/${runId}/topup`, { credits: 20 }); $("memo").classList.add("hidden"); };
+
+function showApproval(e) {
+  $("attention").classList.remove("hidden");
+  const box = document.createElement("div");
+  box.innerHTML = `<p>${esc(e.reason)}: up to ${e.credits.toFixed(2)} credits (${esc(e.endpoint)})</p>`;
+  const yes = document.createElement("button"), no = document.createElement("button");
+  yes.textContent = "Approve"; no.textContent = "Deny"; no.className = "ghost";
+  const answer = (approve) => post(`/api/jobs/${runId}/approvals/${e.binding}`, { approve }).finally(() => box.remove());
+  yes.onclick = () => answer(true); no.onclick = () => answer(false);
+  box.append(yes, no); $("approvals").append(box);
+}
+
+async function loadMemo() {
+  const res = await fetch(`/api/memos/${runId}`);
+  if (!res.ok) { setTimeout(loadMemo, 700); return; }
+  memoData = await res.json();
+  const b = memoData.bill, v = b.verdicts;
+  $("memo").classList.remove("hidden");
+  $("summary").innerHTML = `<b>${esc(memoData.company)}</b>: ${b.claims} claims. <span class="v-contradicted">${v.contradicted} contradicted</span>, ${v.records_disagree} records disagree, ${v.cant_verify} can't verify, ${v.confirmed} confirmed${v.not_checked ? `, ${v.not_checked} not checked at this budget` : ""}. Spent ${b.credits.toFixed(2)} credits${b.total_inr != null ? ` (₹${b.total_inr.toFixed(2)} with model calls)` : ""}. Stopped because: ${esc(b.stopped_because)}.`;
+  $("flags").innerHTML = (memoData.domain_flag ? `<div class="flag"><b>Domain warning:</b> ${esc(memoData.domain_flag)}</div>` : "")
+    + memoData.instructions_ignored.map((t) => `<div class="flag"><b>Instruction found in the deck, ignored:</b> "${esc(t)}". Verdicts come from fixed rules; nothing in the deck can change them.</div>`).join("");
+  $("claims").innerHTML = memoData.claims.map((c, i) => `<tr class="claim" data-i="${i}"><td>${esc(c.claim)} <span class="muted">p.${c.page}</span></td>
+    <td><span class="chip v-${c.verdict}">${LABEL[c.verdict]}${c.provisional && c.verdict === "contradicted" ? " (provisional)" : ""}</span></td>
+    <td>${esc(c.reason)}</td><td>${c.sources.map((s) => `${esc(s.field)}: ${esc(s.says)} <span class="muted">(${esc((s.dated || "undated").slice(0, 10))})</span>`).join("<br>") || "-"}</td>
+    <td>${c.calls.reduce((a, k) => a + k.credits_for_this_claim, 0).toFixed(2)}</td></tr>`).join("");
+  document.querySelectorAll("tr.claim").forEach((row) => row.onclick = () => { $("receipt").classList.remove("hidden"); $("receipt").textContent = JSON.stringify(memoData.claims[+row.dataset.i], null, 2); });
+  const money = (u) => u == null ? "-" : u >= 1e9 ? `$${(u / 1e9).toFixed(1)}B` : u >= 1e6 ? `$${(u / 1e6).toFixed(1)}M` : `$${Math.round(u / 1e3)}K`;
+  $("comps").innerHTML = memoData.comparables.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.domain || "-")}</td><td>${c.headcount ?? "-"}</td><td>${money(c.funding_total_usd)}</td><td>${esc((c.last_round_type || "-").replace("_", " "))} <span class="muted">${esc(c.last_round_date || "")}</span></td><td>${esc(c.record_date || "-")}</td></tr>`).join("") || `<tr><td colspan="6" class="muted">none bought</td></tr>`;
+  $("questions").innerHTML = memoData.questions.map((q) => `<li>${esc(q)}</li>`).join("") || "<li class='muted'>No questions.</li>";
+  const decided = memoData.questions_decision;
+  $("qstate").textContent = decided ? `Questions ${decided}.` : `Waiting for your approval (binding ${memoData.questions_binding.slice(0, 12)}).`;
+  $("qapprove").disabled = $("qdeny").disabled = !!decided || !memoData.questions.length;
+  const a = memoData.audit;
+  if (a) {
+    $("audit").classList.remove("hidden");
+    $("balance").innerHTML = a.matches == null ? `Ledger: ${a.ledger_credits.toFixed(2)} credits (no balance check in this mode)` :
+      `<span class="${a.matches ? "ok" : "notok"}">${a.matches ? "✓" : "✗"}</span> Ledger ${a.ledger_credits.toFixed(2)} credits; Crustdata balance dropped ${a.balance_drop.toFixed(2)}.`;
+    $("chain").textContent = `Ledger hash chain ${b.ledger_chain_ok ? "verified" : "BROKEN"}.`;
+  }
+}
+
+const decide = async (approve) => {
+  const res = await post(`/api/memos/${runId}/questions`, { binding: memoData.questions_binding, approve });
+  const out = await res.json();
+  $("qstate").textContent = approve ? `Approved. Written to the team's outbox: ${out.outbox}` : "Denied. Nothing goes out.";
+  $("qapprove").disabled = $("qdeny").disabled = true;
+};
+$("qapprove").onclick = () => decide(true);
+$("qdeny").onclick = () => decide(false);
+</script>
+</body>
+</html>

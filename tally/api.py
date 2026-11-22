@@ -9,6 +9,7 @@ race against the naive buyer) streams live -> receipts and the audit screen.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import socket
 from pathlib import Path
@@ -21,6 +22,10 @@ from sse_starlette.sse import EventSourceResponse
 from tally.config import Settings, load_settings
 from tally.crust.client import CrustClient
 from tally.crust.fake import FakeCrustdata
+from tally.diligence.deck import load_deck
+from tally.diligence.memo import approve_questions
+from tally.diligence.memo import as_dict as memo_dict
+from tally.diligence.run import DiligenceRun, MemoResult
 from tally.events import EventHub
 from tally.ledger import Ledger
 from tally.planner import EnrichEverything
@@ -67,6 +72,20 @@ class JobRequest(BaseModel):
     race: bool = True
 
 
+class MemoRequest(BaseModel):
+    deck_b64: str
+    filename: str = "deck.pdf"
+    founders: list[str] = []
+    domain: str | None = None
+    budget: float = 150
+    minutes: float = 8
+
+
+class QuestionsAnswer(BaseModel):
+    binding: str
+    approve: bool
+
+
 class CutRequest(BaseModel):
     limit: float | None = None
     factor: float | None = None  # e.g. 0.5 halves what's left of the ceiling
@@ -103,6 +122,18 @@ class Desk:
                   transport=self.world.transport() if self.world else None, approver=approver,
                   on_event=self.hub.sink(run_id), **kwargs)
         self.runs[run_id], self.approvers[run_id] = run, approver
+        return run
+
+    def make_memo(self, request: "MemoRequest") -> DiligenceRun:
+        run_id = new_run_id()
+        approver = WebApprover(self.hub, run_id)
+        deck = load_deck(base64.b64decode(request.deck_b64), name=request.filename)
+        run = DiligenceRun(self.settings, deck, request.budget, request.minutes, founders=request.founders,
+                           domain=request.domain or None, run_id=run_id, ledger=self.ledger,
+                           transport=self.world.transport() if self.world else None, approver=approver,
+                           on_event=self.hub.sink(run_id))
+        self.runs[run_id], self.approvers[run_id] = run, approver
+        self.wants_race[run_id] = False
         return run
 
     def in_background(self, run_id: str, work) -> None:
@@ -168,7 +199,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/")
     async def desk_page():
+        return FileResponse(STATIC / "memo.html")
+
+    @app.get("/research")
+    async def research_page():
         return FileResponse(STATIC / "desk.html")
+
+    @app.post("/api/memos")
+    async def start_memo(request: MemoRequest):
+        run = desk.make_memo(request)
+        desk.in_background(run.run_id, run.quote())
+        return {"run_id": run.run_id}
+
+    @app.get("/api/memos/{run_id}")
+    async def memo(run_id: str):
+        result = desk.results.get(run_id)
+        if result is None or not isinstance(result, MemoResult):
+            raise HTTPException(409, "the memo isn't finished")
+        return memo_dict(result, desk.ledger, desk.settings) | {"audit": desk.audits.get(run_id)}
+
+    @app.post("/api/memos/{run_id}/questions")
+    async def questions(run_id: str, answer: QuestionsAnswer):
+        try:
+            outbox = approve_questions(desk.ledger, desk.settings, run_id, answer.binding, answer.approve)
+        except ValueError as error:
+            raise HTTPException(409, str(error))
+        desk.hub.publish(run_id, "questions", {"approved": answer.approve, "outbox": str(outbox) if outbox else None})
+        return {"ok": True, "outbox": str(outbox) if outbox else None}
 
     @app.get("/phone")
     async def phone_page():
@@ -269,7 +326,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         chain = desk.ledger.verify_chain()
         return {**desk.audits[run_id], "chain_ok": chain.ok, "entries": chain.entries,
                 "first_bad_entry": chain.first_bad_seq, "tally_credits": desk.ledger.credits_charged(run_id),
-                "quote": run.quote_card.as_dict() if run.quote_card else None,
+                "quote": (run.quote_card if isinstance(run.quote_card, dict) or run.quote_card is None
+                          else run.quote_card.as_dict()),
                 "entries_for_run": desk.ledger.entries(run_id)[-200:]}
 
     @app.get("/api/events")
