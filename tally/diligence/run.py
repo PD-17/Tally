@@ -34,8 +34,8 @@ from tally.recovery import BalanceCheck, check_balance
 from tally.runner import EventSink, Run
 from tally.wallet import Approver, BudgetNode, BudgetRefused
 
-COMPARABLES_SHARE = 0.15  # of the budget, set aside so comparables never eat into claim checks
-COMPARABLES_MAX = 6.0
+COMPARABLES_SHARE = 0.25  # of the budget, set aside so comparables never eat into claim checks
+COMPARABLES_MAX = 8.0
 
 
 @dataclass

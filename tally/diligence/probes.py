@@ -6,7 +6,6 @@ from __future__ import annotations
 import re
 
 from tally.crust import schema
-from tally.crust.errors import BadRequest
 from tally.diligence.evidence import CompanyProfile, Comparable, JobPosts, PersonRecord, WebFinding
 from tally.models import Company
 from tally.probes import Bought, Buyer
@@ -26,22 +25,14 @@ class DeckBuyer(Buyer):
                                name: str | None) -> Bought[tuple[Company | None, Company | None]]:
         """The company behind the deck's domain, and the company behind its name (0.2 per match).
         Asking both is what catches a lookalike domain."""
-        body = {}
-        if domain:
-            body["domains"] = [domain.lower().removeprefix("www.")]
-        if name:
-            body["names"] = [name]
-        try:
-            bought = await self._buy(node, "/company/identify", body, self.prices.identify(len(body)),
-                                     "identify the company by its domain and its name")
-            results = schema.identified(bought.value)
-        except BadRequest:  # a key that takes one kind of identifier per call: ask twice
-            results, bought = [], None
-            for kind, values in body.items():
-                one = await self._buy(node, "/company/identify", {kind: values}, self.prices.identify(1),
-                                      f"identify the company by its {kind[:-1]}")
-                results += schema.identified(one.value)
-                bought = one
+        # Seen live: one identify call takes one kind of identifier, so ask by domain, then by name.
+        results, bought = [], None
+        for kind, value in (("domains", domain and domain.lower().removeprefix("www.")), ("names", name)):
+            if not value:
+                continue
+            bought = await self._buy(node, "/company/identify", {kind: [value]}, self.prices.identify(1),
+                                     f"identify the company by its {kind[:-1]}")
+            results += schema.identified(bought.value)
         by_domain = next((c for asked, c in results if domain and asked.lower() == domain.lower()), None)
         by_name = next((c for asked, c in results if name and asked.lower() == name.lower()), None)
         return Bought((by_domain, by_name), bought.call_key, bought.credits, bought.request_id)
@@ -105,6 +96,12 @@ class DeckBuyer(Buyer):
                     "limit": len(ids), "fields": COMPARABLE_FIELDS}
             cost = self.prices.company_fields(len(ids), ["headcount", "funding"])
             why = f"comparables: {len(ids)} competitors on {company.name}'s record"
+        elif company.competitor_domains:
+            domains = company.competitor_domains[:8]
+            body = {"filters": {"field": "basic_info.primary_domain", "type": "in", "value": domains},
+                    "limit": COMPARABLES, "fields": COMPARABLE_FIELDS}
+            cost = self.prices.company_fields(COMPARABLES, ["headcount", "funding"])
+            why = f"comparables: competitors of {company.name} by domain"
         else:
             size = company.headcount or 50
             conditions = [{"field": "headcount.total", "type": "=>", "value": max(1, size // 3)},

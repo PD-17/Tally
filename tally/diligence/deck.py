@@ -297,6 +297,8 @@ def claim_key(claim: DeckClaim) -> tuple:
     if claim.kind in (ClaimKind.HEADCOUNT, ClaimKind.FUNDING_TOTAL, ClaimKind.FOUNDED, ClaimKind.HIRING,
                       ClaimKind.HEADCOUNT_GROWTH, ClaimKind.REVENUE):
         return claim.kind.value, number
+    if claim.kind is ClaimKind.FOUNDER_ROLE:
+        return claim.kind.value, tuple(person)
     return claim.kind.value, subject, tuple(person)
 
 

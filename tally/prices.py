@@ -21,7 +21,7 @@ class PriceBook:
     identify_match: float = 0.2
     company_enrich_record: float = 2.0
     person_enrich_record: float = 1.0  # base only: contact fields cost more and are never asked for
-    web_search_page: float = 1.0
+    web_search_page: float = 2.0  # seen live: 2 credits a search on this key (the docs say 1)
     web_fetch_url: float = 1.0
     job_search_result: float = 0.03
 

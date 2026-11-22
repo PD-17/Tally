@@ -170,6 +170,7 @@ def company_profile(body: list[dict], call_key: str | None = None, request_id: s
         leaders=[_person_record(p, call_key, ref) for group in ("cxos", "decision_makers")
                  for p in _as_list(people.get(group))],
         competitor_ids=[int(i) for i in _as_list(dig(data, "competitors.company_ids")) if str(i).isdigit()],
+        competitor_domains=_competitor_domains(data, info),
         openings=_int(dig(data, "hiring.openings_count")),
         year_founded=_int(info.get("year_founded")),
         city=dig(data, "locations.city"), country=dig(data, "locations.country"),
@@ -177,9 +178,22 @@ def company_profile(body: list[dict], call_key: str | None = None, request_id: s
         else None,
         revenue_low_usd=_float(dig(data, "revenue.estimated.lower_bound_usd")),
         revenue_high_usd=_float(dig(data, "revenue.estimated.upper_bound_usd")),
-        record_date=_date_only(record_date), call_key=call_key, ref=ref,
+        record_date=_date_only(record_date) or (series[-1][0] if series else None), call_key=call_key, ref=ref,
     )
     return profile
+
+
+def _competitor_domains(data: dict, info: dict) -> list[str]:
+    """Competitor domains from the SEO lists (seen live with stray spaces and full URLs)."""
+    own = {d.lower() for d in [info.get("primary_domain"), *(info.get("all_domains") or [])] if d}
+    out = []
+    for group in ("organic_seo", "paid_seo", "websites"):
+        for raw in _as_list(dig(data, f"competitors.{group}")):
+            domain = str(raw).strip().lower().removeprefix("https://").removeprefix("http://").removeprefix("www.")
+            domain = domain.split("/")[0]
+            if domain and "." in domain and domain not in own and domain not in out:
+                out.append(domain)
+    return out
 
 
 def person_record(profile: dict, call_key: str | None = None, ref: str | None = None):

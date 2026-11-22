@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from tally.config import Settings
-from tally.diligence.claims import Verdict, _money
+from tally.diligence.claims import Verdict, _money, round_label
 from tally.diligence.planner import MATERIALITY
 from tally.ledger import Ledger, canonical_json, sha256
 
@@ -134,7 +134,7 @@ def as_markdown(memo, ledger: Ledger, settings: Settings) -> str:
     for c in memo.comparables:
         lines.append(f"| {c.name} | {c.domain or '-'} | {c.headcount or '-'} | "
                      f"{_money(c.funding_total_usd) if c.funding_total_usd else '-'} | "
-                     f"{c.last_round_type or '-'} {('(' + c.last_round_date + ')') if c.last_round_date else ''} | "
+                     f"{round_label(c.last_round_type) if c.last_round_type else "-"} {('(' + c.last_round_date + ')') if c.last_round_date else ''} | "
                      f"{c.record_date or '-'} |")
     if not memo.comparables:
         lines.append("| (none bought) | | | | | |")

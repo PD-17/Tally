@@ -63,6 +63,7 @@ class CompanyProfile:
     founders: list[PersonRecord] = field(default_factory=list)
     leaders: list[PersonRecord] = field(default_factory=list)  # CXOs and decision makers
     competitor_ids: list[int] = field(default_factory=list)
+    competitor_domains: list[str] = field(default_factory=list)
     openings: int | None = None  # open jobs, as of `record_date`
     year_founded: int | None = None
     city: str | None = None

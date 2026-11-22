@@ -522,18 +522,25 @@ def _web_naming(ev: Evidence, index: int, terms: list[str], any_of: tuple[str, .
     if finding is None:
         return None
     for result in finding.results:
-        text = f"{result.get('title', '')} {result.get('snippet', '')}".lower()
-        names_ok = all(_mentions(text, t) for t in terms if t)
-        words_ok = not any_of or any(w in text for w in any_of)
-        if names_ok and words_ok:
+        text = f"{result.get('title', '')}. {result.get('snippet', '')}".lower()
+        # every name and the funding word in one sentence: a page that mentions both somewhere proves nothing
+        fragments = re.split(r"(?<=[.!?])\s+|\s+[·|—–]\s+|\n+", text)
+        if any(all(_mentions(f, t) for t in terms if t) and (not any_of or any(w in f for w in any_of))
+               for f in fragments):
             return Source("web_page", result.get("url", ""), "passage", result.get("snippet", ""),
                           result.get("published"), finding.call_key)
     return None
 
 
 def _mentions(text: str, name: str) -> bool:
+    """The whole name as a phrase; or, for long names, every word of it ("Tiger Global Management")."""
     core = normalize_name(name)
-    return bool(core) and (core in text or all(w in text for w in core.split()))
+    if not core:
+        return False
+    if _has_phrase(text, core):
+        return True
+    words = core.split()
+    return len(words) > 1 and all(len(w) >= 4 and _has_phrase(text, w) for w in words)
 
 
 def _funding_news(ev: Evidence, index: int, company: str, also: str | None = None) -> Source | None:
