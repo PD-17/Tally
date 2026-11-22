@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tally-fake",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "tally", "serve", "--mode", "fake"],
+      "env": { "TALLY_INR_PER_USD": "88", "TALLY_DATA_DIR": "data/fake" },
+      "port": 8000
+    }
+  ]
+}

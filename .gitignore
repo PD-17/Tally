@@ -1,0 +1,13 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.hypothesis/
+
+# Run state (each run writes its own ledger and saved responses)
+data/
+.ruff_cache/
