@@ -10,6 +10,8 @@ deck.pdf ─► read (Claude Opus + rules) ─► identify company ─► buy 1 
         ─► questions for founders (held until the partner approves that exact set)
 ```
 
+> **In one paragraph, for reviewers.** The model has exactly one job: turning an untrusted PDF into a typed list of claims (`DeckReading`). It has no tools, no budget and no say over verdicts. Everything with consequences runs in deterministic Python: worst-case pricing, admission control against a hierarchical budget, idempotent purchases, write-ahead accounting in an append-only hash-chained SQLite ledger, crash reconciliation against the vendor's usage records, and one pure judge function per claim kind. A purchase can't exceed the ceiling, can't be made twice and can't go unrecorded, and a verdict can't come from a model.
+
 ---
 
 ## Contents
@@ -20,16 +22,22 @@ deck.pdf ─► read (Claude Opus + rules) ─► identify company ─► buy 1 
 4. [Live results](#live-results-22-nov-2026)
 5. [Run it](#run-it)
 6. [Architecture](#architecture)
+   - [System view](#system-view) · [Module dependency graph](#module-dependency-graph) · [Layering](#layering) · [Source map](#source-map)
 7. [The pipeline, step by step](#the-pipeline-step-by-step)
+   - [End-to-end sequence](#end-to-end-sequence) · [Run lifecycle](#run-lifecycle)
 8. [The spending engine](#the-spending-engine)
+   - [Budget tree](#budget-tree) · [Purchase protocol](#the-purchase-protocol-walletbuy) · [Ledger](#the-ledger) · [Crash recovery](#crash-recovery) · [Crustdata client](#crustdata-client)
 9. [The verdict engine](#the-verdict-engine)
 10. [Deck security](#deck-security)
-11. [HTTP API](#http-api)
-12. [Configuration and modes](#configuration-and-modes)
-13. [Testing and evaluation](#testing-and-evaluation)
-14. [Business case](#business-case)
-15. [Design decisions](#design-decisions)
-16. [Known limits](#known-limits)
+11. [System invariants](#system-invariants)
+12. [Concurrency and consistency model](#concurrency-and-consistency-model)
+13. [Failure modes](#failure-modes)
+14. [HTTP API and event stream](#http-api)
+15. [Configuration and modes](#configuration-and-modes)
+16. [Testing and evaluation](#testing-and-evaluation)
+17. [Business case](#business-case)
+18. [Design decisions](#design-decisions)
+19. [Known limits](#known-limits)
 
 ---
 
@@ -132,25 +140,136 @@ uv run pytest                                     # 48 tests, all offline
 
 ## Architecture
 
+### System view
+
+Containers, the trust boundary around the deck, and the two external services. Solid arrows are calls; dotted arrows are callbacks and events.
+
 ```mermaid
-flowchart LR
-  Desk["Desk / simple view"] -->|REST + SSE| API["FastAPI · EventHub"]
-  Phone["Phone dial"] -->|REST + SSE| API
-  API --> Run["DiligenceRun<br/>quote() · deliver() · top_up()"]
-  Run --> Reader["Deck readers<br/>Claude Opus (PDF) ∪ regex rules (text)"]
-  Run --> Planner["Planner<br/>value per credit"]
-  Run --> Judge["Verdict rules<br/>pure functions, tolerances"]
-  Planner --> Buyer["DeckBuyer → Buyer._buy<br/>idempotent keys, 3 attempts"]
-  Buyer --> Wallet["Wallet<br/>budget tree · deadline · cut · kill · approvals"]
-  Wallet --> Ledger[("Ledger<br/>SQLite WAL · hash chain · responses")]
-  Wallet --> Client["CrustClient<br/>per-endpoint RPM · retries · record/replay"]
-  Client --> Crust["Crustdata API"]
-  Run --> Memo["Memo · questions · approval binding"]
-  Run -. on restart .-> Recovery["Recovery<br/>in-doubt → usage records"]
-  Recovery --> Ledger
+flowchart TB
+  subgraph Clients["Clients"]
+    UI["Browser screens<br/>desk / · plain /simple · phone /phone"]
+    CLI["CLI<br/>tally.cli"]
+  end
+
+  subgraph Control["Control plane · tally.api"]
+    API["FastAPI handlers<br/>Desk registry of runs"]
+    Hub["EventHub<br/>fan-out, 500-event replay buffer"]
+    WA["WebApprover<br/>one asyncio.Future per binding"]
+  end
+
+  subgraph Orch["Orchestration · tally.diligence"]
+    Run["DiligenceRun<br/>quote · deliver · top_up"]
+    Reader["Deck readers<br/>model ∪ regex, instruction scanner"]
+    Planner["DiligencePlanner<br/>greedy value per credit"]
+    Judge["judge<br/>pure, one per ClaimKind"]
+    Memo["Memo builder<br/>receipts, question binding"]
+    DBuy["DeckBuyer<br/>typed probes"]
+  end
+
+  subgraph Spend["Spending engine · domain-agnostic"]
+    Buyer["Buyer._buy<br/>idempotency key, 3 attempts"]
+    Wallet["Wallet<br/>BudgetNode tree, purchase lane"]
+    Prices["PriceBook<br/>worst case, raise-only"]
+    Recovery["Recovery<br/>in_doubt reconciliation"]
+  end
+
+  subgraph Adapters["I/O adapters"]
+    Client["CrustClient<br/>per-endpoint RPM, retries, record/replay"]
+    Schema["crust/schema.py<br/>the only JSON parser"]
+    Brain["Brain · llm.py<br/>the only model call"]
+  end
+
+  subgraph Store["Persistence · data/"]
+    Ledger[("ledger.sqlite<br/>WAL, synchronous=FULL<br/>hash-chained entries")]
+    Files[("decks/ · responses/ · outbox/")]
+  end
+
+  Crust[["Crustdata API"]]
+  Claude[["Anthropic API<br/>claude-opus-5-5"]]
+
+  UI -->|"REST"| API
+  Hub -.->|"SSE"| UI
+  CLI --> Run
+  API --> Run
+  API --> WA
+  WA -.->|"approve / deny"| Wallet
+  Run -.->|"emit"| Hub
+  Run --> Reader --> Brain --> Claude
+  Run --> Planner
+  Run --> Judge
+  Run --> Memo --> Files
+  Run --> DBuy --> Buyer --> Wallet
+  DBuy --> Schema
+  Buyer --> Prices
+  Wallet --> Ledger
+  Wallet --> Client --> Crust
+  Run --> Recovery --> Ledger
+  Recovery --> Client
+  Brain -->|"tokens, ₹"| Ledger
 ```
 
-**Layering.** Each layer knows only the one below it:
+### Module dependency graph
+
+Intra-package imports, generated from the `from tally.… import` lines. Arrows point from importer to imported. The graph is acyclic, and **no module in the spending engine imports `tally.diligence`**. The one place the two halves touch is `llm.py`, which imports the `DeckReading` schema lazily, inside `read_deck`.
+
+```mermaid
+flowchart TD
+  subgraph Entry["Entry points"]
+    cli["cli"]
+    api["api"]
+  end
+  subgraph Dil["tally.diligence"]
+    run["run"]
+    memo["memo"]
+    planner["planner"]
+    dprobes["probes"]
+    claims["claims"]
+    deck["deck"]
+    evidence["evidence"]
+  end
+  subgraph Eng["Spending engine"]
+    session["session"]
+    probes["probes · Buyer"]
+    wallet["wallet"]
+    recovery["recovery"]
+    prices["prices"]
+    ledger["ledger"]
+  end
+  subgraph Ad["Adapters"]
+    llm["llm"]
+    client["crust.client"]
+    schema["crust.schema"]
+    errors["crust.errors"]
+    config["config"]
+  end
+
+  cli --> api & run
+  api --> run & session & ledger
+  run --> session & dprobes & planner & claims & memo & recovery
+  memo --> claims & planner & ledger
+  planner --> claims & prices
+  claims --> deck & evidence
+  dprobes --> probes & schema & wallet
+  schema --> evidence
+  session --> wallet & recovery & prices & llm & client
+  probes --> wallet & client & prices
+  wallet --> ledger & errors
+  recovery --> client & ledger
+  client --> ledger & errors & config
+  llm --> ledger & config
+  llm -.->|"lazy: DeckReading"| deck
+```
+
+Check the boundary yourself:
+
+```bash
+grep -nE "from tally\.diligence" tally/{wallet,ledger,probes,recovery,session,prices}.py tally/crust/client.py
+# no output
+```
+
+### Layering
+
+Each layer knows only the one below it:
 
 | Layer | Knows about | Doesn't know about |
 |---|---|---|
@@ -192,11 +311,102 @@ The spending engine (`session.py`, `wallet.py`, `ledger.py`, `recovery.py`, `pro
 
 A run has two phases, so a partner can see the price before committing to it.
 
+### End-to-end sequence
+
+One run through the web desk, happy path. Every paid call follows the same reserve → perform → settle protocol, shown in detail under [The purchase protocol](#the-purchase-protocol-walletbuy).
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor P as Partner
+  participant UI as Desk (browser)
+  participant API as FastAPI
+  participant R as DiligenceRun
+  participant B as Brain (Claude Opus)
+  participant W as Wallet
+  participant L as Ledger
+  participant C as Crustdata
+
+  P->>UI: deck, founders, budget, minutes
+  UI->>API: POST /api/memos
+  API->>R: make_memo, then quote() as a background task
+  API-->>UI: run_id
+  UI->>API: GET /api/events?run_id (SSE, replays history)
+
+  rect rgba(120,120,120,0.08)
+  Note over R,C: Phase 1 · quote()
+  R->>C: GET /account/endpoints, /account/credits (free)
+  R->>L: update_run(starting_balance)
+  R->>B: messages.parse(PDF document + text layer)
+  B-->>R: DeckReading (claims, reader_instructions)
+  B->>L: model entry (tokens, ₹)
+  R->>R: regex reader, merge ∪, checkable(), find_instructions()
+  R->>L: update_run(deck_reading)
+  R->>W: identify by domain, then by name (0.2 cr each)
+  W->>C: POST /company/identify
+  R->>R: domain_check (lookalike?)
+  R->>W: company enrich (2 cr)
+  W->>C: POST /company/enrich
+  R->>R: judge every claim, carve comparables, coverage curve
+  R-->>UI: SSE quote
+  end
+
+  P->>UI: Accept
+  UI->>API: POST /api/jobs/{id}/accept
+  API->>R: deliver() as a background task
+
+  rect rgba(120,120,120,0.08)
+  Note over R,C: Phase 2 · deliver()
+  R->>W: comparables (spends from the carved node)
+  loop while planner.next_action() returns a check
+    R->>W: buy(check) at worst-case price
+    W->>L: reserved
+    W->>C: POST
+    C-->>W: body, X-Credits-Used, request id
+    W->>L: settled + response body (one transaction)
+    R->>R: re-judge every claim
+    R-->>UI: SSE claim (only verdicts that changed)
+  end
+  R->>C: GET /account/credits
+  R->>L: update_run(done, questions, questions_binding)
+  R-->>UI: SSE done (ledger credits vs balance drop)
+  end
+
+  P->>UI: approve questions
+  UI->>API: POST /api/memos/{id}/questions (binding, approve)
+  API->>L: message entry (decision, bound to the exact set)
+  API->>API: write data/outbox/run_id.md
+```
+
+### Run lifecycle
+
+`DiligenceRun` as a state machine. Every exit path goes through **Memo**, so a stopped run still produces an honest verdict for every claim, *not checked at this budget* included.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Accounting: new or resumed run_id
+  Accounting --> Reading: prices and RPM loaded, in_doubt reconciled
+  Reading --> Identifying: at least one checkable claim
+  Reading --> Memo: no checkable claims
+  Identifying --> Quoted: record bought, claims judged, comparables carved
+  Identifying --> Memo: no record, or BudgetRefused
+  Quoted --> Comparables: partner accepts
+  Comparables --> CheckLoop
+  CheckLoop --> CheckLoop: buy, then re-judge all
+  CheckLoop --> Memo: nothing worth buying, killed, deadline, 402
+  Memo --> CheckLoop: top_up raises limit and deadline
+  Memo --> QuestionsPending
+  QuestionsPending --> Outbox: binding matches, approved
+  QuestionsPending --> Closed: denied
+  Outbox --> [*]
+  Closed --> [*]
+```
+
 ### Phase 1: `quote()`
 
 1. **Account for the past.** Load this key's prices and rate limits from `/account/endpoints` (free). A new run records the starting credit balance. A resumed run reconciles anything a crash left in doubt (see [Crash recovery](#crash-recovery)).
 2. **Read the deck.** If the reading is already saved on the run, it is reused and nothing is paid twice. Otherwise:
-   - **Model reader:** Claude Opus receives the PDF as a `document` block plus the text layer. It returns a `DeckReading` through structured output (`messages.parse`, `output_format=DeckReading`, effort `medium`, server-side fallbacks on). Tokens and ₹ cost go on the ledger.
+   - **Model reader:** Claude Opus receives the PDF as a `document` block plus the text layer. It returns a `DeckReading` through structured output (`messages.parse`, `output_format=DeckReading`, effort `medium`, server-side fallbacks on). Tokens and ₹ cost go on the ledger. An API error, a refusal or `max_tokens` returns `None`, and the rules reader stands alone.
    - **Rules reader:** regexes over the text layer for headcount, hiring, money (₹/$/crore/lakh/mn/bn), rounds, investors, founding year, founders' employers and schools, customers and the domain.
    - **Merge:** model claims ∪ rules claims the model missed (deduplicated by `claim_key`).
    - **Filter:** `checkable()` drops forward-looking statements ("we will…") and names that aren't names. Each dropped claim is logged.
@@ -210,10 +420,29 @@ A run has two phases, so a partner can see the price before committing to it.
 ### Phase 2: `deliver()`
 
 8. **Comparables.** The company's own competitors on record come first, matched exactly by id or domain, and tiny SEO competitors (under a tenth of the company's size) are dropped. If fewer than 3 remain, companies in the same industry, country and size band, each with a funding record, fill the rest, up to 5.
-9. **Check loop.** Repeat until nothing is worth buying:
-   - `planner.next_action(claims, evidence, available)` picks the affordable check with the highest value per credit.
-   - Buy it, then re-judge **every** claim. One job-post purchase can change both a headcount and a hiring verdict. Each changed verdict is pushed over SSE.
-   - Handling by outcome: `killed`/`deadline` stop the loop. `denied` blocks that check for good. `over_budget` (after a cut) re-plans with what's left. A timeout after 3 attempts marks the claims *held*. `402` stops the run. `403`/`400` block that check.
+9. **Check loop.** Repeat until nothing is worth buying. Each outcome is handled explicitly:
+
+```mermaid
+flowchart TD
+  NA["planner.next_action(claims, evidence, root.available())"]
+  NA -->|"None"| Done["stop: nothing left worth checking / budget used"]
+  NA -->|"Check"| Do["_do(check) through DeckBuyer"]
+  Do -->|"ok"| Mark["planner.done += key"]
+  Do -->|"BudgetRefused: killed, deadline"| Stop["stop with that reason"]
+  Do -->|"BudgetRefused: denied"| Block["planner.blocked += key<br/>never asked again"]
+  Do -->|"BudgetRefused: over_budget after a cut"| Re
+  Do -->|"SourceTimeout after 3 attempts"| Held["claims marked HELD<br/>planner.done += key"]
+  Do -->|"OutOfCredits 402"| Out["stop: Crustdata credits ran out"]
+  Do -->|"403 / 400 / other CrustError"| Block
+  Mark --> Re["re-judge every claim<br/>emit SSE for changed verdicts"]
+  Block --> Re
+  Held --> Re
+  Re --> NA
+  Done & Stop & Out --> Memo["_finish_memo(stop_reason)"]
+```
+
+   One job-post purchase can change both a headcount and a hiring verdict, which is why **every** claim is re-judged after **every** purchase.
+
 10. **Memo.** Results are sorted by verdict severity, then materiality, then deck order. When several claims share a purchase, its cost is split evenly between them. Questions are generated and bound. Ledger credits are compared with the account's balance drop.
 
 **Top-up** after the memo raises the root limit and extends the deadline, then calls `deliver()` again. The planner's `done` set and the ledger's saved responses mean only new checks are bought.
@@ -222,10 +451,11 @@ A run has two phases, so a partner can see the price before committing to it.
 
 ### Budget tree
 
-```
-client (150)
-├── comparables (8)            ← carved; can only be granted more by its parent
-└── [claim checks spend from client.available()]
+```mermaid
+flowchart TB
+  root["client · limit 150<br/>spent + reserved by claim checks"]
+  comps["comparables · limit ≤ 8<br/>carved at quote time"]
+  root -->|"carve / grant / reclaim<br/>(parent only)"| comps
 ```
 
 ```python
@@ -237,27 +467,57 @@ committed(node) = spent + reserved + Σ child.committed()
 - `cut(new_limit)` resizes the tree top-down. Each child keeps at least what it has committed. The remaining room is shared out in proportion to each child's unused headroom. A limit below what's already committed is allowed: nothing new can be bought until it rises.
 - A **kill** flag and a **deadline** (epoch seconds, persisted) are checked on every reservation.
 
+Worked example of a cut. The root has spent 12; the comparables node has limit 8 and has committed 3.
+
+| Operation | Root room `limit − spent − reserved` | Comparables limit | Root `available()` |
+|---|---:|---:|---:|
+| start (limit 150) | 138 | 8 | 130 |
+| `cut(30)` | 18 | 8 (fits, unchanged) | 10 |
+| `cut(15)` | 3 | 3 (floored at its committed) | 0, so no new purchase |
+
 ### The purchase protocol (`Wallet.buy`)
 
-```
-saved_response(key)?  ──yes──► return it, log "cached", 0 credits
-        │ no
-est_max > approve_over? ──yes──► ApprovalRequest(binding = sha256(key|credits)) → wait for a person
-        │
-  ┌──── purchase lane (asyncio.Lock: one paid call in flight) ────┐
-  │ check killed / deadline / est_max ≤ node.available()          │
-  │ node.reserved += est_max; ledger.reserve(...)  ← committed    │
-  │ perform HTTP                                                  │
-  │   ok        → reserved −= est_max; spent += X-Credits-Used;   │
-  │               ledger.settle(body, credits, request_id)        │
-  │   HTTP err  → ledger.fail(credits from header, normally 0)    │
-  │   timeout / → ledger.mark_in_doubt; counted at est_max until  │
-  │   no reply    reconciled                                      │
-  └───────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Bu as Buyer._buy
+  participant W as Wallet.buy
+  participant A as Approver
+  participant Lane as Purchase lane (asyncio.Lock)
+  participant L as Ledger (SQLite)
+  participant C as CrustClient
+
+  Bu->>Bu: key = sha256(run, endpoint, canonical body, attempt)
+  Bu->>W: buy(node, key, endpoint, est_max, reason)
+  W->>L: saved_response(key)
+  alt already settled
+    L-->>W: stored body
+    W->>L: cached entry, 0 credits
+    W-->>Bu: Purchase(from_ledger=True)
+  else not bought yet
+    opt est_max above approve_over
+      W->>A: decide(ApprovalRequest), binding = sha256(key, credits)
+      A-->>W: yes, or no and BudgetRefused(denied)
+    end
+    W->>Lane: acquire
+    W->>W: check killed, deadline, est_max within node.available()
+    W->>L: reserved entry at est_max, committed before the request
+    W->>C: perform()
+    alt 2xx
+      C-->>W: body, X-Credits-Used, request id
+      W->>L: BEGIN IMMEDIATE, response body + settled, COMMIT
+    else HTTP error (CrustError)
+      W->>L: failed entry, credits from header (normally 0)
+    else timeout or no reply
+      W->>L: in_doubt entry, counted at est_max
+    end
+    W->>Lane: release
+  end
+  Note over Bu: on SourceTimeout, retry with attempt + 1 (a fresh key), at most 3
 ```
 
 - **Worst-case pricing.** `PriceBook` holds an upper bound for every endpoint, including premium field groups, which are billed twice (once to filter, once to return). Prices loaded from the key's endpoint list can only raise these bounds.
-- **Approval threshold.** A single purchase above `max(25% of budget, 20 credits)` needs a person's yes. Setting the budget approves everything below that. With no one watching, the default is `DenyAll`.
+- **Approval threshold.** A single purchase above `max(25% of budget, 20 credits)` needs a person's yes. Setting the budget approves everything below that. With no one watching, the default is `DenyAll`. Approval waits happen **outside** the lane, so a pending approval never holds the lock.
 - **One lane.** Paid calls are serialised. When a cut, kill or deadline fires, at most the one call already in flight settles.
 - **Retries.** `Buyer._buy` tries up to 3 times. Each attempt is a *new* call key, so an in-doubt attempt stays on the ledger for reconciliation and is never overwritten.
 
@@ -265,19 +525,121 @@ est_max > approve_over? ──yes──► ApprovalRequest(binding = sha256(key|
 
 SQLite in WAL mode with `synchronous=FULL`, so a committed entry survives a hard kill. Three tables:
 
-| Table | Holds |
-|---|---|
-| `runs` | id, limits, deadline, mode, status, JSON `details` (quote, deck reading, questions, binding, starting balance) |
-| `entries` | append-only events: `reserved · settled · failed · in_doubt · resolved · cached`, for kinds `crustdata · model · payment · message` |
-| `responses` | the response body per call key, written in the same transaction as `settled` |
+```mermaid
+erDiagram
+  runs ||--o{ entries : "run_id"
+  entries }o--o| responses : "call_key, written with settled"
+  runs {
+    TEXT id PK "run-YYYYmmdd-HHMMSS-xxxxxx"
+    TEXT client_id
+    TEXT job_text
+    REAL credit_limit "persisted on every cut or top-up"
+    REAL deadline_at "epoch seconds"
+    TEXT mode "live, record, replay, fake"
+    TEXT status "running, done"
+    REAL created_at "start of the usage-event window"
+    TEXT details "JSON: quote, deck_reading, questions, binding, starting_balance"
+  }
+  entries {
+    INTEGER seq PK "AUTOINCREMENT, chain order"
+    TEXT run_id
+    TEXT call_key "idx (call_key, seq)"
+    TEXT kind "crustdata, model, payment, message"
+    TEXT event "reserved, settled, failed, in_doubt, resolved, cached"
+    TEXT budget_id
+    TEXT endpoint
+    TEXT reason
+    REAL credits
+    TEXT model
+    INTEGER tokens_in
+    INTEGER tokens_out
+    REAL cost_inr
+    TEXT request_id "vendor event id, used by reconciliation"
+    TEXT note
+    REAL at
+    TEXT prev_hash
+    TEXT row_hash "sha256(prev_hash + canonical 15 columns)"
+  }
+  responses {
+    TEXT call_key PK
+    TEXT body "canonical JSON"
+  }
+```
 
-A call's state is a **fold** over its entries, oldest first. Rule 3, "when unsure, count it", means an `in_doubt` call is charged at its reserved amount until it is resolved. The ledger may overcount for a moment but never misses a charge.
+A call's state is a **fold** over its entries, oldest first. Each call moves through this state machine, and the `charged` column is what the call counts against the run:
 
-Every entry stores `prev_hash` and `row_hash = sha256(prev_hash + canonical_json(15 hashed columns))`. `verify_chain()` recomputes the whole chain and returns the first bad `seq`. Model calls and the partner's decision on the questions are entries in the same chain, so one audit covers data spend, model spend and the human decision.
+```mermaid
+stateDiagram-v2
+  direction LR
+  [*] --> reserved: reserve(est_max), before the request
+  reserved --> settled: 2xx
+  reserved --> failed: HTTP error
+  reserved --> in_doubt: timeout, or found open on restart
+  in_doubt --> resolved: usage event matched
+  in_doubt --> resolved: no usage event, 0 credits
+  settled --> [*]
+  failed --> [*]
+  resolved --> [*]
+```
+
+| Latest event | `charged` | Notes |
+|---|---|---|
+| `reserved` | 0 in the ledger | still in flight; the wallet holds `est_max` as `node.reserved` |
+| `settled` | `X-Credits-Used` | response body stored in the same transaction |
+| `failed` | header credits, normally 0 | error responses are free |
+| `in_doubt` | `est_max` | rule 3: when unsure, count it |
+| `resolved` | the real amount, or 0 | from Crustdata's usage records |
+| `cached` | 0 | its own key (`<key>:cache:<ns>`), an audit trail of reuse |
+
+Rule 3, "when unsure, count it", means the ledger may overcount for a moment but never misses a charge.
+
+**Hash chain.** Every entry stores `prev_hash` and `row_hash = sha256(prev_hash + canonical_json(15 hashed columns))`. Model calls and the partner's decision on the questions are entries in the same chain, so one audit covers data spend, model spend and the human decision.
+
+```mermaid
+flowchart LR
+  G["GENESIS<br/>0 × 64"] --> E1["seq 1 · crustdata<br/>reserved"]
+  E1 --> E2["seq 2 · crustdata<br/>settled"]
+  E2 --> E3["seq 3 · model<br/>settled, tokens, ₹"]
+  E3 --> En["…"]
+  En --> Eq["seq n · message<br/>questions approved"]
+```
+
+Each arrow is `row_hash(k) = sha256(row_hash(k−1) ‖ canonical_json(row k))`.
+
+`verify_chain()` recomputes the chain in one O(n) pass and returns the first bad `seq`. An edited, deleted or inserted row breaks every hash after it, so the first mismatch locates the tampering. (The chain proves integrity, not authorship: someone with write access could rebuild the whole chain. Pinning the head hash outside the database, for example in the memo, closes that gap.)
 
 ### Crash recovery
 
 On restart with the same `run_id`:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as New process (same run_id)
+  participant S as Session
+  participant L as Ledger
+  participant C as Crustdata
+
+  Note over P,L: the old process died mid-call, leaving an entry at "reserved"
+  P->>S: DiligenceRun(run_id)
+  S->>L: run(run_id): credit_limit, deadline_at, created_at
+  S->>L: open_reservations(), mark_in_doubt on each
+  S->>C: GET /account/endpoints (prices, RPM)
+  S->>C: GET /account/usage/events since created_at (free)
+  C-->>S: charged events with event_id
+  S->>S: unclaimed = events not on the ledger, with credits > 0
+  loop each in_doubt call
+    alt an unclaimed event on the same endpoint
+      S->>L: resolve(real credits, request_id = event_id)
+    else none
+      S->>L: resolve(0, never charged)
+    end
+  end
+  S->>L: details.deck_reading, so the model is not called again
+  Note over S,L: deterministic requests: every settled key is a cache hit at 0 credits
+  S->>C: GET /account/credits at the end
+  S->>S: ledger total vs (starting balance minus now), within 0.005
+```
 
 1. The original limits and deadline are reloaded from `runs`.
 2. Every open `reserved` entry for the run becomes `in_doubt`.
@@ -296,7 +658,27 @@ On restart with the same `run_id`:
 
 ## The verdict engine
 
-`judge(claim, index, evidence) → Judgement(verdict, reason, sources, provisional)`. There is one function per `ClaimKind`, and each is pure: it takes the evidence bought so far and returns a verdict.
+`judge(claim, index, evidence) → Judgement(verdict, reason, sources, provisional)`. There is one function per `ClaimKind`, and each is pure: it takes the evidence bought so far and returns a verdict. Because judging is pure and cheap, the run re-judges every claim after every purchase instead of tracking dependencies between claims and evidence.
+
+The judges differ in their fields and thresholds, but they share this shape:
+
+```mermaid
+flowchart TD
+  In["claim + evidence bought so far"] --> Q1{"has the source that<br/>could settle it been bought?"}
+  Q1 -->|"no"| NC["NOT_CHECKED · provisional"]
+  Q1 -->|"yes"| Q2{"does the record<br/>carry the field?"}
+  Q2 -->|"no"| CV["CANT_VERIFY<br/>absence is never a contradiction"]
+  Q2 -->|"yes"| Q3{"do two dated<br/>records disagree?"}
+  Q3 -->|"yes"| RD["RECORDS_DISAGREE<br/>both shown with dates"]
+  Q3 -->|"no"| Q4{"inside the<br/>confirm tolerance?"}
+  Q4 -->|"yes"| OK["CONFIRMED"]
+  Q4 -->|"no"| Q5{"past the<br/>contradict threshold?"}
+  Q5 -->|"no, grey zone"| CV
+  Q5 -->|"yes"| CT["CONTRADICTED"]
+  CT --> Q6{"could an unbought<br/>check overturn it?"}
+  Q6 -->|"yes"| PV["provisional<br/>planner doubles the web check's value"]
+  Q6 -->|"no"| Final["final"]
+```
 
 ### Claim kinds, with planner priors
 
@@ -327,6 +709,8 @@ Decks round up more often than they lie, so each threshold is a named constant i
 | Hiring | open posts ≥ 50% of the claimed hires | | |
 | Past employer | listed | missing **and** the person's record lists ≥ 2 past jobs | can't verify (thin history proves nothing) |
 
+The asymmetry is deliberate: the contradict thresholds sit well past the confirm band, and the gap between them is *can't verify*. A false contradiction costs the fund a founder relationship. A false *can't verify* costs one question.
+
 ### Rules that prevent false accusations
 
 - **A missing record is never a contradiction.** Only a record that exists and says otherwise can contradict a claim.
@@ -346,15 +730,51 @@ pick           argmax value / worst_case_cost,  subject to cost ≤ available,  
 
 `settled(claim)` is 1.0 for confirmed or contradicted, 0.9 for records disagree, 0.6 for can't verify, 0.5 for held and 0 for not checked, halved when the verdict is provisional. The candidate checks are job posts (20 results), one founder's own record (enrich by profile URL, else a search scoped to the company), and one web search per claim that a search could settle. At a small budget this greedy order is the triage: investors and headcount get checked before logos, and the rest honestly say *not checked at this budget*.
 
+Each loop iteration costs O(claims) to enumerate options and O(claims) to re-judge, with fewer than 20 candidate checks per deck. All of that is negligible next to one HTTP round trip.
+
 ## Deck security
 
 ### Prompt injection
 
-The deck is treated as hostile input in three layers:
+The deck is treated as hostile input. The diagram shows the trust boundary: the only thing that crosses from the model to the rest of the system is a typed, validated data structure.
+
+```mermaid
+flowchart LR
+  subgraph U["UNTRUSTED · written by the company under review"]
+    Deck["deck.pdf<br/>text layer + images"]
+  end
+
+  subgraph SB["Model sandbox · no tools, no budget, no verdicts"]
+    LLM["Claude Opus<br/>structured output only"]
+  end
+
+  Regex["Rules reader<br/>deterministic regex"]
+  Scan["find_instructions()<br/>INSTRUCTION_PATTERNS"]
+  Merge["merge ∪<br/>checkable() · quote_in_text()"]
+
+  subgraph T["TRUSTED · deterministic code"]
+    Planner["Planner"]
+    Wallet["Wallet"]
+    Judge["judge()"]
+    Tmpl["Question templates"]
+  end
+
+  Flags["memo flags + run log"]
+
+  Deck --> LLM -->|"DeckReading (pydantic)"| Merge
+  Deck --> Regex --> Merge
+  Deck --> Scan -->|"reported, never executed"| Flags
+  LLM -->|"reader_instructions"| Flags
+  Merge -->|"list of DeckClaim"| Planner & Judge
+  Planner --> Wallet
+  Judge --> Tmpl
+```
 
 1. **The prompt** tells the model the deck is untrusted. Text addressed to reviewers gets copied into `reader_instructions`, never followed.
 2. **A regex scanner** (`INSTRUCTION_PATTERNS`) runs on the text layer whatever the model does. It catches "ignore previous instructions", "AI reviewers … rate/score/approve", "do not verify", "mark all claims as confirmed", "system prompt" and similar.
 3. **Architecture.** Even if both layers miss an injection, it has nothing to act on. The model has no tools, no budget access and no say over verdicts. Question text comes from fixed templates, so nothing the deck says can write a question.
+
+The worst a successful injection can do is shape the *claim list*: drop a claim (the regex reader still finds the common kinds) or invent one (it is then checked against records like any other, and `quote_in_text` reports that its wording isn't in the deck).
 
 Instructions that are found show up on the memo and in the run log. `tests/decks/ledgerline_injected.txt` covers this.
 
@@ -366,6 +786,66 @@ The company is identified **both** by the deck's domain and by its name. `domain
 - If the name resolves but the domain doesn't, `looks_alike()` tests for a homoglyph fold (`0→o`, `1→l`, `rn→m`, …), an edit distance ≤ 2 after removing hyphens, or the same label with a different TLD (`paysetu.co` vs `paysetu.in`).
 
 Either case adds a question for the founder ("Which domain is yours?"). The test decks are `kredbloom_lookalike.txt` and `kredbloom_altered.txt`.
+
+## System invariants
+
+The properties the design rests on, where each is enforced and what tests it.
+
+| # | Invariant | Enforced in | Tested by |
+|---|---|---|---|
+| I1 | For every budget node, `spent + reserved + Σ child.limit ≤ limit` at reservation time (a later cut may push `limit` below `committed`; then nothing new is admitted) | `Wallet._check_can_spend`, `BudgetNode.carve/grant` | Hypothesis property test `test_the_budget_tree_never_lets_a_node_overspend` |
+| I2 | No paid request leaves the process without a durable `reserved` entry committed first | `Wallet.buy` (reserve, then `perform()`) | `test_wallet`, `test_recovery` |
+| I3 | A given `(run, endpoint, body, attempt)` is paid for at most once | `call_key` + `saved_response` | `test_ledger` idempotency, `test_recovery` "restart after a finished memo buys nothing" |
+| I4 | A charge is never under-counted: an unknown outcome counts at its worst-case price until reconciled | `_fold` (`in_doubt → reserved`), `_record_failure` | `test_wallet` "timeout stays in doubt and counts" |
+| I5 | After reconciliation, ledger credits equal the account's balance drop within 0.005 | `recovery.check_balance` | `test_recovery` (exact per-endpoint recovery) |
+| I6 | Any edit, insert or delete in `entries` is detected | `verify_chain` | `test_ledger` "hash chain catches an edited entry" |
+| I7 | Every verdict is a pure function of `(claim, evidence)`; no model output reaches `judge` except the claim itself | `claims.judge`, `llm.py` returns `DeckReading` only | `test_diligence` "injection inert", tolerance tests |
+| I8 | A missing record never yields `CONTRADICTED` | each judge | `test_diligence` "missing record ≠ contradiction" |
+| I9 | Founder questions reach the outbox only with a decision bound to their exact text | `questions_binding`, `approve_questions` (409 on mismatch) | `test_diligence` binding test, `test_api` |
+| I10 | After a cut, kill or deadline, at most one already-in-flight call settles | single purchase lane per wallet | `test_wallet` "a cut stops spending within one call" |
+
+## Concurrency and consistency model
+
+| Concern | Mechanism |
+|---|---|
+| Execution model | One asyncio event loop per process. Each run executes as a background task (`Desk.in_background`); failures are surfaced as SSE `error` events. |
+| Paid calls within a run | Serialised through `Wallet._lane` (`asyncio.Lock`). The admission check, the reservation and the ledger write happen under the lock, so check-then-reserve can't race. |
+| Ledger writes | `threading.Lock` around every append, plus `BEGIN IMMEDIATE` so the chain head is read and extended in one write transaction. `settle` writes the response body and the `settled` entry atomically. |
+| Durability | WAL + `synchronous=FULL`: a returned `COMMIT` is on disk. A `reserved` entry is therefore durable before the request is sent. |
+| Controls (cut, kill, deadline) | Plain state on the wallet, read under the lane on every reservation. They act between purchases, never mid-request. Cuts and deadline extensions are persisted to `runs` so a restart keeps them. |
+| Approvals | `WebApprover` parks an `asyncio.Future` keyed by `sha256(call_key, credits)`. The wait happens before the lane is taken. An answer for a different binding is rejected (404). |
+| Live events | `EventHub.publish` is synchronous and non-blocking (`put_nowait` into unbounded per-subscriber queues), so the wallet can call it from inside the lane. A 500-event buffer lets late subscribers catch up. |
+| Consistency with the vendor | The ledger is the source of truth for intent; Crustdata's usage records are the source of truth for charges. They are reconciled at resume (`settle_in_doubt`) and compared at the end (`check_balance`). |
+
+```mermaid
+flowchart LR
+  W["Wallet.on_change<br/>reserved, settled, failed, cut, kill, approval_needed"] --> Pub
+  R["DiligenceRun.emit<br/>deck, quote, claim, flag, note, done"] --> Pub
+  WA["WebApprover<br/>approval"] --> Pub
+  APIq["questions handler<br/>questions"] --> Pub
+  Pub["EventHub.publish<br/>sync, put_nowait"] --> Ring[("replay buffer<br/>last 500")]
+  Pub --> Q1["subscriber queue"] --> S1["SSE · desk"]
+  Pub --> Q2["subscriber queue"] --> S2["SSE · phone"]
+  Ring -.->|"on connect"| S1 & S2
+```
+
+## Failure modes
+
+| Failure | Detected by | Behaviour | Effect on money |
+|---|---|---|---|
+| Process killed mid-request | `reserved` with no later entry | restart marks it `in_doubt`, reconciles against usage records | exact after reconciliation |
+| Request timeout / connection drop | `SourceTimeout` | `in_doubt`; retried with a fresh key, up to 3 attempts; then claims → **Held** | overcounts until reconciled, never under |
+| `429` rate limited | client | backoff, up to 5 retries, waits ≤ 60 s | free |
+| `5xx` | client | up to 2 retries | free |
+| `402` out of credits | `OutOfCredits` | check loop stops; memo with remaining claims *not checked* | none beyond what settled |
+| `403` / `400` | `EndpointForbidden` / `BadRequest` | that check is blocked for the rest of the run | free |
+| Model API error, refusal or `max_tokens` | `Brain.read_deck` returns `None` | rules reader stands alone | model cost still recorded if tokens were used |
+| `/account/endpoints` unavailable | exception in `_load_key_limits` | default (documented) prices and RPM kept; run continues | worst-case bounds still apply |
+| Deck carries an injection | prompt + `find_instructions` | flagged on the memo; no effect on verdicts or spend | none |
+| Deck domain is a lookalike | `domain_check`, `looks_alike` | checked against the company found by name; flagged; founder question added | none |
+| Partner cuts below spend | `_set_limit` | allowed; no new purchases until raised | at most the in-flight call settles |
+| Ledger edited on disk | `verify_chain` | audit panel shows the first bad `seq` | n/a (detection) |
+| Server restarted mid-run | `POST /api/jobs/{id}/resume` | rebuilds the run from the ledger and saved deck, re-quotes for free, continues | 0 for everything already settled |
 
 ## HTTP API
 
@@ -420,6 +900,8 @@ On-disk layout under `data/`: `ledger.sqlite` (+WAL), `responses/` (record/repla
 uv run pytest      # 48 tests, offline, ~30 s
 ```
 
+The whole suite runs offline. `FakeCrustdata` is mounted as an `httpx` transport, so tests exercise the real `CrustClient`, rate limiter, retry policy, wallet and ledger, with only the network replaced.
+
 | Suite | Covers |
 |---|---|
 | `test_wallet.py` | buy-once, over-limit refusal, a cut stops spending within one call, deadline, kill, large purchase waits for a person, timeout stays in doubt and counts, error responses are free; a Hypothesis property test that no budget-tree node ever overspends |
@@ -452,14 +934,19 @@ Test decks (`tests/decks/`, all fictional): `ledgerline_accurate`, `ledgerline_i
 | Enrich everything about the company and every founder | **Rejected.** It pays for records no claim needs, and it still can't tell a thin record from a contradiction. |
 | **The model reads, code prices, buys and judges** | **Chosen.** The ceiling and every verdict live in code. The cheapest record that settles the most claims comes first. A contradiction that one search could overturn gets that search before the memo calls a founder wrong. |
 | Greedy value-per-credit planner vs. an optimal knapsack | Greedy. Fewer than 20 checks, and verdicts change after each purchase, so re-planning greedily after every buy beats a single up-front optimum. |
+| Reserve at worst case vs. at expected price | Worst case. Reserving at the expected price would let the last purchase overshoot the ceiling; the cost of pessimism is a little unused headroom, which the ledger returns on settle. |
+| Event-sourced ledger (fold over entries) vs. mutable rows | Append-only. It gives the audit trail and the hash chain for free, and crash recovery is just "find calls whose latest event is `reserved`". |
+| Re-judge everything vs. track claim ↔ evidence dependencies | Re-judge everything. Judges are pure and there are tens of claims, so a dependency graph would add bugs and save microseconds. |
 | SQLite vs. Postgres for the ledger | SQLite with WAL and `synchronous=FULL`. One process, durable on hard kill, no infrastructure, and the hash chain is portable as a single file. |
 | Learning planner priors per deck | Not done. One deck is too little data, so `learn()` is a stub and the priors are fixed. |
 
 ## Known limits
 
 - **Young companies with thin records** mostly come back *can't verify*, never *contradicted*. The founder questions ask for evidence instead.
-- **The balance check** assumes no one else spends on the same API key during the run.
+- **The balance check** assumes no one else spends on the same API key during the run. Two concurrent runs on one key will each see the other's spend.
 - **Revenue, customers and awards** can only be checked on the web. A customer claim needs a named subject to be worth a search.
 - **INR amounts** can't be compared until `TALLY_INR_PER_USD` is set. They come back *can't verify* with that reason.
 - **Comparables** need a funding record. Companies without one are skipped instead of padding the list.
-- **Single process.** The purchase lane is an in-process lock. Running several workers would need the reservation step to move into the database.
+- **Single process.** The purchase lane is an in-process lock, and each run has its own `CrustClient`, so the per-endpoint rate limiter isn't shared across concurrent runs (429 retries absorb the overflow). Running several workers would need the reservation step and the limiter to move into shared storage, e.g. a conditional `UPDATE` on a budget row in Postgres.
+- **Reconciliation matches by endpoint.** Two in-doubt calls on the same endpoint in one run are resolved in order against unclaimed charges on that endpoint. The total is exact; which of the two gets which amount isn't guaranteed.
+- **The hash chain proves integrity, not origin.** Anyone who can write the SQLite file can rebuild a consistent chain. Publishing the head hash with each memo would anchor it.
