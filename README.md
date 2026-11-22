@@ -4,6 +4,8 @@
 
 ContextCon 05, BITS Pilani · Theme 2, Investing · Statement 2.2, The Diligence Desk.
 
+**Try it live:** https://iuhli-103-144-92-142.free.pinggy.net/simple. It uses real Crustdata and Claude, capped at 15 credits per run with top-ups off. It's a temporary tunnel from a team laptop, available on 22 Nov 2026 until about 19:59 IST. Click "Enter site" on Pinggy's notice. If the link is down, run it locally with `--mode fake` (see [Run it](#run-it)).
+
 ```
 deck.pdf ─► read (Claude Opus + rules) ─► identify company ─► buy 1 record ─► QUOTE
         ─► partner accepts ─► ranked checks inside the ceiling ─► memo with receipts
