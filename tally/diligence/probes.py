@@ -107,6 +107,8 @@ class DeckBuyer(Buyer):
             conditions = [{"field": "headcount.total", "type": "=>", "value": max(1, size // 3)},
                           {"field": "headcount.total", "type": "=<", "value": size * 3}]
             groups = ["headcount", "funding"]
+            # funded companies only: the memo shows each comparable's funding, and a funded peer is the useful one
+            conditions.append({"field": "funding.total_investment_usd", "type": "=>", "value": 1})
             if company.country:
                 conditions.append({"field": "locations.country", "type": "=", "value": company.country})
             if company.industry:
