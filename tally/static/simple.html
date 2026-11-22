@@ -3,210 +3,203 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Diligence Desk</title>
+<title>Tally</title>
 <style>
+/* An analyst's report, not a dashboard: paper, ink, one data colour, quiet verdicts. */
 :root {
-  --bg: #f4f3ef; --bg2: #e9eef3; --card: rgba(255,255,255,.86); --ink: #16181d; --muted: #646872; --line: #e1e2e6;
-  --accent: #1f7a6d; --accent2: #3f5bd8; --glow: rgba(63,91,216,.18); --soft: #eef0f4; --shadow: 0 10px 30px rgba(20,24,40,.08);
-  --red: #d1453b; --amber: #c98a12; --blue: #3f6fd8; --green: #1f9461; --grey: #9a9ea8;
+  --bg: #f6f4ef; --card: #fffefb; --ink: #1c1b18; --muted: #6e695f; --line: #e3dfd5; --soft: #efece4;
+  --accent: #1c1b18; --on-accent: #fffefb; --data: #34556b; --data-soft: rgba(52,85,107,.10);
+  --red: #a63a24; --amber: #a86e14; --blue: #4d6477; --green: #3d6a50; --grey: #aaa398;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #0e1116; --bg2: #121a26; --card: rgba(22,27,36,.82); --ink: #e9ebf0; --muted: #9aa1ad; --line: #283040;
-  --accent: #4fd1b5; --accent2: #8aa2ff; --glow: rgba(138,162,255,.16); --soft: #1b2230; --shadow: 0 10px 30px rgba(0,0,0,.35);
-  --red: #ff7a6e; --amber: #f1b54a; --blue: #7ea6ff; --green: #5fd49a; --grey: #6f7686; } }
+  --bg: #131311; --card: #1a1a17; --ink: #ebe8e1; --muted: #9a958a; --line: #2d2c28; --soft: #22211d;
+  --accent: #ebe8e1; --on-accent: #131311; --data: #8fb0c4; --data-soft: rgba(143,176,196,.12);
+  --red: #dc7a63; --amber: #d6a253; --blue: #97adbf; --green: #8dbd9c; --grey: #6c675e; } }
 :root[data-theme="dark"] {
-  --bg: #0e1116; --bg2: #121a26; --card: rgba(22,27,36,.82); --ink: #e9ebf0; --muted: #9aa1ad; --line: #283040;
-  --accent: #4fd1b5; --accent2: #8aa2ff; --glow: rgba(138,162,255,.16); --soft: #1b2230; --shadow: 0 10px 30px rgba(0,0,0,.35);
-  --red: #ff7a6e; --amber: #f1b54a; --blue: #7ea6ff; --green: #5fd49a; --grey: #6f7686; }
+  --bg: #131311; --card: #1a1a17; --ink: #ebe8e1; --muted: #9a958a; --line: #2d2c28; --soft: #22211d;
+  --accent: #ebe8e1; --on-accent: #131311; --data: #8fb0c4; --data-soft: rgba(143,176,196,.12);
+  --red: #dc7a63; --amber: #d6a253; --blue: #97adbf; --green: #8dbd9c; --grey: #6c675e; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body { min-height: 100vh; color: var(--ink); font: 15.5px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: radial-gradient(1100px 600px at 10% -10%, var(--glow), transparent 60%),
-              radial-gradient(900px 500px at 110% 10%, rgba(31,122,109,.14), transparent 60%),
-              linear-gradient(180deg, var(--bg), var(--bg2)); background-attachment: fixed; }
-main { max-width: 880px; margin: 0 auto; padding: 22px 16px 70px; }
+body { min-height: 100vh; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+main { max-width: 860px; margin: 0 auto; padding: 28px 18px 80px; }
 .hidden { display: none !important; }
 .muted { color: var(--muted); font-size: 14px; }
+.label { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+h1, h2, h3, .serif { font-family: var(--serif); font-weight: 600; letter-spacing: -.005em; }
 
-/* header */
-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-.logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: var(--shadow); }
-header h1 { font-size: 21px; margin: 0; letter-spacing: -.01em; }
-header p { margin: 0; color: var(--muted); font-size: 13.5px; }
-.mode { margin-left: auto; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--soft);
-  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.mode i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.6s infinite; }
+/* masthead */
+header { display: flex; align-items: flex-end; gap: 14px; padding-bottom: 14px; border-bottom: 2px solid var(--ink); }
+.mark { width: 38px; height: 38px; border: 1.5px solid var(--ink); display: grid; place-items: center;
+  font-family: var(--serif); font-weight: 700; font-size: 15px; letter-spacing: .02em; }
+header h1 { font-size: 26px; margin: 0; line-height: 1.1; }
+header p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
+.mode { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; padding-bottom: 3px; }
+.mode i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: breathe 2.4s ease-in-out infinite; }
 .mode.fake i { background: var(--amber); }
 
-/* stepper */
-.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 4px 0 18px; }
-.step { position: relative; padding-top: 12px; font-size: 13px; color: var(--muted); }
-.step::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 5px; border-radius: 3px; background: var(--line); }
-.step::after { content: ""; position: absolute; top: 0; left: 0; height: 5px; width: 0; border-radius: 3px;
-  background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .6s ease; }
-.step.on { color: var(--ink); font-weight: 600; } .step.on::after, .step.done::after { width: 100%; }
-.step b { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+/* steps */
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0 26px; }
+.step { border-top: 1px solid var(--line); padding-top: 8px; font-size: 13.5px; color: var(--muted); position: relative; }
+.step::before { content: ""; position: absolute; top: -1px; left: 0; height: 2px; width: 0; background: var(--ink); transition: width .5s ease; }
+.step.on, .step.done { color: var(--ink); } .step.on::before, .step.done::before { width: 100%; }
+.step.done::before { background: var(--muted); }
+.step span { font-family: var(--serif); font-size: 12px; color: var(--muted); margin-right: 6px; font-variant-numeric: tabular-nums; }
 
-/* cards */
-.card { background: var(--card); backdrop-filter: blur(10px); border: 1px solid var(--line); border-radius: 18px;
-  padding: 22px; margin-bottom: 16px; box-shadow: var(--shadow); animation: rise .5s ease both; }
-.card h2 { margin: 0 0 4px; font-size: 18px; letter-spacing: -.01em; }
-.card h3 { margin: 22px 0 10px; font-size: 15px; }
-.hero { display: grid; grid-template-columns: 1fr 230px; gap: 18px; align-items: center; }
-@media (max-width: 640px) { .hero { grid-template-columns: 1fr; } .hero svg { display: none; } }
+/* sections */
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 26px 26px 24px; margin-bottom: 18px;
+  animation: rise .45s ease both; }
+.card h2 { margin: 2px 0 6px; font-size: 22px; line-height: 1.25; }
+.card h3 { margin: 28px 0 10px; font-size: 16px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.hero { display: grid; grid-template-columns: 1fr 220px; gap: 22px; align-items: center; }
+@media (max-width: 640px) { .hero { grid-template-columns: 1fr; } .hero svg { display: none; } .card { padding: 20px 18px; } }
 
 /* form */
-.drop { display: grid; place-items: center; gap: 6px; border: 2px dashed var(--line); border-radius: 14px; padding: 22px;
-  text-align: center; cursor: pointer; color: var(--muted); transition: border-color .2s, background .2s, transform .2s; margin-top: 14px; }
-.drop:hover, .drop.over { border-color: var(--accent); background: var(--soft); transform: translateY(-1px); }
-.drop.has { border-style: solid; border-color: var(--accent); color: var(--ink); }
+.drop { display: grid; place-items: center; gap: 4px; border: 1px dashed var(--grey); border-radius: 4px; padding: 24px;
+  text-align: center; cursor: pointer; color: var(--muted); margin-top: 20px; transition: border-color .2s, background .2s; }
+.drop:hover, .drop.over { border-color: var(--ink); background: var(--soft); }
+.drop.has { border-style: solid; border-color: var(--ink); color: var(--ink); }
 .drop input { display: none; }
-.drop .icon { width: 34px; height: 34px; color: var(--accent); }
-.fields { display: grid; grid-template-columns: 1fr 190px; gap: 14px; margin: 16px 0; }
+.drop svg { color: var(--ink); }
+.fields { display: grid; grid-template-columns: 1fr 210px; gap: 18px; margin: 18px 0 20px; }
 @media (max-width: 560px) { .fields { grid-template-columns: 1fr; } }
-label.f { display: grid; gap: 5px; font-size: 13px; color: var(--muted); }
-input[type=text], input[type=number] { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
-  background: var(--soft); color: var(--ink); width: 100%; transition: border-color .2s, box-shadow .2s; }
-input:focus { outline: none; border-color: var(--accent2); box-shadow: 0 0 0 3px var(--glow); }
-input[type=range] { width: 100%; accent-color: var(--accent); }
-button { font: inherit; font-weight: 600; padding: 11px 20px; border-radius: 11px; border: 0; cursor: pointer; color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 6px 18px var(--glow);
-  transition: transform .15s, box-shadow .15s, opacity .2s; }
-button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 24px var(--glow); }
-button:disabled { opacity: .45; cursor: default; box-shadow: none; }
-button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); box-shadow: none; }
-button.stop { background: transparent; color: var(--red); border: 1px solid var(--red); box-shadow: none; }
-.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.err { color: var(--red); min-height: 1em; margin: 8px 0 0; }
+label.f { display: grid; gap: 6px; }
+label.f .val { font-family: var(--serif); font-size: 15px; color: var(--ink); text-transform: none; letter-spacing: 0; margin-left: 4px; }
+input[type=text] { font: inherit; padding: 9px 11px; border: 1px solid var(--line); border-radius: 4px; background: var(--card);
+  color: var(--ink); width: 100%; transition: border-color .15s; }
+input[type=text]:focus { outline: none; border-color: var(--ink); }
+input[type=range] { width: 100%; accent-color: var(--ink); margin-top: 6px; }
+button { font: inherit; font-weight: 600; font-size: 14px; letter-spacing: .01em; padding: 10px 18px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); transition: opacity .15s, background .15s; }
+button:hover:not(:disabled) { opacity: .88; }
+button:disabled { opacity: .35; cursor: default; }
+button.ghost { background: transparent; color: var(--ink); }
+button.stop { background: transparent; color: var(--red); border-color: var(--red); }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.err { color: var(--red); min-height: 1em; margin: 10px 0 0; font-size: 14px; }
 
-/* stats */
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
+/* figures */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); margin: 20px 0 6px; border-top: 1px solid var(--line); }
 @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
-.stat { background: var(--soft); border-radius: 14px; padding: 12px 14px; animation: rise .5s ease both; }
-.stat b { display: block; font-size: 26px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.stat { padding: 12px 14px 12px 0; border-bottom: 1px solid var(--line); animation: rise .45s ease both; }
+.stat b { display: block; font-family: var(--serif); font-size: 30px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums lining-nums; }
 .stat span { font-size: 12.5px; color: var(--muted); }
-.split { display: grid; grid-template-columns: 200px 1fr; gap: 18px; align-items: center; }
+.split { display: grid; grid-template-columns: 190px 1fr; gap: 26px; align-items: center; margin-top: 18px; }
 @media (max-width: 640px) { .split { grid-template-columns: 1fr; justify-items: center; } }
-.legend { display: grid; gap: 6px; font-size: 13.5px; }
-.legend div { display: flex; align-items: center; gap: 8px; }
-.legend i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
-.legend b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.legend { display: grid; gap: 7px; font-size: 14px; width: 100%; max-width: 360px; }
+.legend div { display: flex; align-items: center; gap: 10px; padding-bottom: 6px; border-bottom: 1px dotted var(--line); }
+.legend i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.legend b { margin-left: auto; font-family: var(--serif); font-size: 17px; font-variant-numeric: tabular-nums; }
 svg.chart { width: 100%; height: auto; display: block; overflow: visible; }
-svg.chart text { fill: var(--muted); font-size: 11px; }
-.plan { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--muted); }
-.plan li { animation: rise .4s ease both; }
+svg.chart text { fill: var(--muted); font-size: 11px; font-family: var(--sans); }
+svg.chart text.big { fill: var(--ink); font-family: var(--serif); font-weight: 600; font-size: 40px; }
+svg.chart text.mid { fill: var(--ink); font-family: var(--serif); font-weight: 600; font-size: 32px; }
+svg.chart text.cap { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; }
+.plan { margin: 0; padding-left: 20px; font-size: 14px; color: var(--muted); }
+.plan li { padding: 3px 0; animation: rise .4s ease both; }
+.plan li::marker { font-family: var(--serif); color: var(--ink); }
 
 /* live */
-.live { display: grid; grid-template-columns: 170px 1fr; gap: 20px; align-items: center; }
-@media (max-width: 560px) { .live { grid-template-columns: 1fr; justify-items: center; } }
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(26px, 1fr)); gap: 6px; margin-top: 6px; }
-.tile { aspect-ratio: 1; border-radius: 7px; background: var(--soft); border: 1px solid var(--line); cursor: help;
-  transition: background .4s, border-color .4s; }
-.tile.flip { animation: flip .5s ease; }
+.live { display: grid; grid-template-columns: 160px 1fr; gap: 26px; align-items: center; margin-top: 8px; }
+@media (max-width: 560px) { .live { grid-template-columns: 1fr; justify-items: center; } .live > div { width: 100%; } }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(22px, 1fr)); gap: 5px; margin-top: 8px; }
+.tile { aspect-ratio: 1; border-radius: 2px; background: var(--soft); border: 1px solid var(--line); cursor: help; transition: background .5s, border-color .5s; }
+.tile.flip { animation: flip .55s ease; }
 .tile.v-contradicted { background: var(--red); border-color: var(--red); }
 .tile.v-records_disagree { background: var(--amber); border-color: var(--amber); }
 .tile.v-cant_verify { background: var(--blue); border-color: var(--blue); }
 .tile.v-confirmed { background: var(--green); border-color: var(--green); }
 .tile.v-held { background: var(--grey); border-color: var(--grey); }
-.feed { list-style: none; margin: 14px 0 0; padding: 0; font-size: 13px; color: var(--muted); max-height: 150px; overflow: hidden; }
-.feed li { padding: 4px 0; border-bottom: 1px dashed var(--line); animation: slide .35s ease both; }
-.ask { border: 1px solid var(--amber); border-radius: 14px; padding: 12px 14px; margin-top: 12px; animation: rise .4s ease both; }
+.feed { list-style: none; margin: 16px 0 0; padding: 0; font-size: 13px; color: var(--muted); max-height: 150px; overflow: hidden; }
+.feed li { padding: 5px 0; border-top: 1px dotted var(--line); animation: slide .35s ease both; }
+.ask { border: 1px solid var(--amber); border-left-width: 3px; border-radius: 4px; padding: 12px 14px; margin-top: 14px; animation: rise .4s ease both; }
 
 /* memo */
-.flag { display: flex; gap: 10px; align-items: flex-start; border-left: 4px solid var(--red); background: var(--soft);
-  padding: 10px 12px; border-radius: 10px; margin: 8px 0; font-size: 14px; animation: rise .4s ease both; }
-.claim { display: grid; grid-template-columns: 5px 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line);
-  animation: rise .45s ease both; }
+.flag { display: grid; grid-template-columns: auto 1fr; gap: 12px; border-left: 3px solid var(--red); background: var(--soft);
+  padding: 10px 14px; margin: 10px 0; font-size: 14px; animation: rise .4s ease both; }
+.flag b { color: var(--red); }
+.claim { display: grid; grid-template-columns: 3px 1fr; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); animation: rise .45s ease both; }
 .claim:first-child { border-top: 0; }
-.claim .bar { border-radius: 3px; }
 .claim p { margin: 2px 0; }
-.claim .src { font-size: 12.5px; color: var(--muted); }
-.tag { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; margin-right: 8px;
-  color: #fff; vertical-align: 1px; }
-.c-contradicted { background: var(--red); } .c-records_disagree { background: var(--amber); } .c-cant_verify { background: var(--blue); }
-.c-confirmed { background: var(--green); } .c-held, .c-not_checked { background: var(--grey); }
-ol.q { padding-left: 20px; margin: 6px 0 12px; } ol.q li { margin-bottom: 8px; animation: rise .4s ease both; }
-.comp { display: grid; grid-template-columns: 150px 1fr 90px; gap: 10px; align-items: center; font-size: 13.5px; margin: 7px 0; }
-@media (max-width: 560px) { .comp { grid-template-columns: 110px 1fr 70px; } }
-.comp .track { height: 12px; border-radius: 6px; background: var(--soft); overflow: hidden; }
-.comp .fill { height: 100%; width: 0; border-radius: 6px; background: linear-gradient(90deg, var(--accent), var(--accent2));
-  transition: width 1s cubic-bezier(.2,.8,.2,1); }
-.comp .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.comp .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
-.receipt { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--muted); }
-.badge { font-weight: 700; padding: 3px 10px; border-radius: 999px; font-size: 12px; }
-.badge.ok { background: rgba(31,148,97,.15); color: var(--green); } .badge.no { background: rgba(209,69,59,.15); color: var(--red); }
+.claim .quote { font-family: var(--serif); font-size: 16px; }
+.claim .src { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.verdict { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; margin-bottom: 2px; }
+.verdict i { width: 7px; height: 7px; border-radius: 50%; }
+ol.q { padding-left: 22px; margin: 6px 0 14px; } ol.q li { margin-bottom: 9px; animation: rise .4s ease both; }
+ol.q li::marker { font-family: var(--serif); }
+.comp { display: grid; grid-template-columns: 160px 1fr 96px; gap: 12px; align-items: center; font-size: 14px; padding: 6px 0; border-bottom: 1px dotted var(--line); }
+@media (max-width: 560px) { .comp { grid-template-columns: 110px 1fr 78px; } }
+.comp .track { height: 8px; background: var(--soft); }
+.comp .fill { height: 100%; width: 0; background: var(--data); transition: width 1.1s cubic-bezier(.2,.8,.2,1); }
+.comp .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comp .num { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+.receipt { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 22px; padding-top: 14px; border-top: 2px solid var(--ink); font-size: 13.5px; color: var(--muted); }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; }
+.check.ok { color: var(--green); } .check.no { color: var(--red); }
 
-/* motion */
-@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-@keyframes slide { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-@keyframes flip { 0% { transform: rotateY(0); } 50% { transform: rotateY(90deg) scale(.9); } 100% { transform: rotateY(0); } }
-@keyframes sweep { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(78px, 34px); } }
-@keyframes pop { 0%, 30% { opacity: 0; transform: scale(.4); } 45%, 85% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.9); } }
+/* motion: slow and small */
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes slide { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+@keyframes flip { 0% { transform: scale(1); } 40% { transform: scale(.6); } 100% { transform: scale(1); } }
+@keyframes sweep { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(64px, 40px); } }
+@keyframes mark { 0%, 25% { opacity: 0; } 35%, 85% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes spin { to { transform: rotate(360deg); } }
-.glass { animation: sweep 5s ease-in-out infinite; transform-box: fill-box; }
-.b1 { animation: pop 5s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
-.b2 { animation: pop 5s ease-in-out 1.2s infinite; transform-origin: center; transform-box: fill-box; }
-.b3 { animation: pop 5s ease-in-out 2.4s infinite; transform-origin: center; transform-box: fill-box; }
-.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent);
-  animation: spin .8s linear infinite; display: inline-block; vertical-align: -3px; margin-right: 8px; }
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
-}
+.glass { animation: sweep 7s ease-in-out infinite; transform-box: fill-box; }
+.m1 { animation: mark 7s ease-in-out infinite; } .m2 { animation: mark 7s ease-in-out 1.6s infinite; } .m3 { animation: mark 7s ease-in-out 3.2s infinite; }
+.spinner { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--line); border-top-color: var(--ink);
+  animation: spin .9s linear infinite; display: inline-block; vertical-align: 1px; margin-right: 10px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <div class="logo" aria-hidden="true">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 13l2 2 4-4"/></svg>
-    </div>
-    <div><h1>Diligence Desk</h1><p>Every pitch-deck claim, checked against records.</p></div>
-    <span class="mode" id="mode"><i></i><span id="modeText">Live data</span></span>
+    <div class="mark" aria-hidden="true">T</div>
+    <div><h1>Tally</h1><p>Every claim in a pitch deck, checked against the record.</p></div>
+    <span class="mode label" id="mode"><i></i><span id="modeText">Live data</span></span>
   </header>
 
   <nav class="steps" aria-label="Progress">
-    <div class="step on" id="s1"><b>Step 1</b>Upload</div>
-    <div class="step" id="s2"><b>Step 2</b>Quote</div>
-    <div class="step" id="s3"><b>Step 3</b>Check</div>
-    <div class="step" id="s4"><b>Step 4</b>Memo</div>
+    <div class="step on" id="s1"><span>01</span>Upload</div>
+    <div class="step" id="s2"><span>02</span>Quote</div>
+    <div class="step" id="s3"><span>03</span>Check</div>
+    <div class="step" id="s4"><span>04</span>Memo</div>
   </nav>
 
   <!-- 1: upload -->
   <section class="card" id="step1">
     <div class="hero">
       <div>
-        <h2>Test a pitch deck before the second meeting</h2>
-        <p class="muted">Each claim comes back confirmed, contradicted or can't verify, with the dated record behind it. You set the budget; nothing is spent past it.</p>
+        <p class="label">Before the second meeting</p>
+        <h2>Test the deck against the record</h2>
+        <p class="muted">Each claim comes back confirmed, contradicted or can't verify, with the dated record behind it. You set the budget, and nothing is spent past it.</p>
       </div>
-      <svg viewBox="0 0 230 170" width="230" height="170" aria-hidden="true">
-        <defs><linearGradient id="g1" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)"/><stop offset="1" stop-color="var(--accent2)"/></linearGradient></defs>
-        <rect x="30" y="18" width="132" height="140" rx="12" fill="var(--soft)" stroke="var(--line)"/>
-        <rect x="46" y="34" width="70" height="10" rx="5" fill="url(#g1)" opacity=".85"/>
-        <rect x="46" y="56" width="100" height="7" rx="3.5" fill="var(--line)"/><rect x="46" y="72" width="86" height="7" rx="3.5" fill="var(--line)"/>
-        <rect x="46" y="88" width="94" height="7" rx="3.5" fill="var(--line)"/><rect x="46" y="104" width="64" height="7" rx="3.5" fill="var(--line)"/>
-        <rect x="46" y="124" width="22" height="20" rx="4" fill="var(--line)"/><rect x="74" y="116" width="22" height="28" rx="4" fill="var(--line)"/>
-        <rect x="102" y="108" width="22" height="36" rx="4" fill="url(#g1)" opacity=".6"/>
-        <g class="b1"><circle cx="186" cy="40" r="15" fill="var(--green)"/><path d="M179 40l5 5 9-10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/></g>
-        <g class="b2"><circle cx="196" cy="84" r="15" fill="var(--red)"/><path d="M190 78l12 12M202 78l-12 12" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g>
-        <g class="b3"><circle cx="184" cy="128" r="15" fill="var(--blue)"/><text x="184" y="134" text-anchor="middle" font-size="17" font-weight="700" fill="#fff">?</text></g>
-        <g class="glass"><circle cx="70" cy="66" r="24" fill="var(--glow)" stroke="url(#g1)" stroke-width="6"/>
-          <path d="M87 83l18 18" stroke="url(#g1)" stroke-width="8" stroke-linecap="round"/></g>
+      <svg viewBox="0 0 220 168" width="220" height="168" aria-hidden="true" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="24" y="14" width="128" height="140" rx="3" stroke="var(--ink)" stroke-width="1.4" fill="var(--card)"/>
+        <path d="M40 34h58" stroke="var(--ink)" stroke-width="3"/>
+        <path d="M40 54h92M40 68h80M40 82h88M40 96h56" stroke="var(--grey)" stroke-width="1.4"/>
+        <path d="M40 138v-14M58 138v-22M76 138v-30M94 138v-18" stroke="var(--data)" stroke-width="7"/>
+        <path d="M34 138h76" stroke="var(--ink)" stroke-width="1"/>
+        <g class="m1"><circle cx="182" cy="42" r="12" stroke="var(--green)" stroke-width="1.6"/><path d="M176 42l4 4 8-8" stroke="var(--green)" stroke-width="1.8"/></g>
+        <g class="m2"><circle cx="190" cy="86" r="12" stroke="var(--red)" stroke-width="1.6"/><path d="M185 81l10 10M195 81l-10 10" stroke="var(--red)" stroke-width="1.8"/></g>
+        <g class="m3"><circle cx="180" cy="130" r="12" stroke="var(--blue)" stroke-width="1.6"/><path d="M176 126.5a4 4 0 1 1 5 3.8v2.2" stroke="var(--blue)" stroke-width="1.6"/><circle cx="181" cy="136.5" r=".9" fill="var(--blue)" stroke="none"/></g>
+        <g class="glass"><circle cx="64" cy="62" r="20" stroke="var(--ink)" stroke-width="2" fill="var(--data-soft)"/>
+          <path d="M78.5 76.5l15 15" stroke="var(--ink)" stroke-width="3.2"/></g>
       </svg>
     </div>
     <label class="drop" id="drop">
       <input id="file" type="file" accept=".pdf,.txt,.md">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
-      <span id="fileLabel"><b>Drop the deck here</b> or click to choose a PDF</span>
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M4 15v4h16v-4"/></svg>
+      <span id="fileLabel"><b>Drop the deck here</b>, or click to choose a PDF</span>
     </label>
     <div class="fields">
-      <label class="f">Founders' names, comma separated<input id="founders" type="text" placeholder="Asha Rao, Vik Mehta"></label>
-      <label class="f">Budget: <span><b id="budgetOut">150</b> credits</span>
+      <label class="f"><span class="label">Founders, comma separated</span><input id="founders" type="text" placeholder="Asha Rao, Vik Mehta"></label>
+      <label class="f"><span class="label">Budget <span class="val"><span id="budgetOut">150</span> credits</span></span>
         <input id="budget" type="range" min="5" max="300" step="5" value="150"></label>
     </div>
     <button id="go" disabled>Get a quote</button>
@@ -215,6 +208,7 @@ ol.q { padding-left: 20px; margin: 6px 0 12px; } ol.q li { margin-bottom: 8px; a
 
   <!-- 2: quote -->
   <section class="card hidden" id="step2">
+    <p class="label">The quote</p>
     <h2><span class="spinner" id="reading"></span><span id="quoteTitle">Reading the deck…</span></h2>
     <p class="muted" id="headline"></p>
     <div class="hidden" id="quoteBody">
@@ -223,32 +217,34 @@ ol.q { padding-left: 20px; margin: 6px 0 12px; } ol.q li { margin-bottom: 8px; a
         <svg class="chart" id="quoteDonut" viewBox="0 0 200 200" aria-label="Claims by how they get checked"></svg>
         <div>
           <svg class="chart" id="curve" viewBox="0 0 520 210" aria-label="Claims checked for each budget"></svg>
-          <p class="muted" style="margin:4px 0 0">Claims checked at each budget. The dashed line is yours.</p>
+          <p class="muted" style="margin:6px 0 0">Claims checked at each budget. The dashed rule is yours.</p>
         </div>
       </div>
       <h3>What the checks will buy</h3>
       <ol class="plan" id="plan"></ol>
-      <div class="row" style="margin-top:16px"><button id="accept">Check the claims</button><span class="muted" id="acceptNote"></span></div>
+      <div class="row" style="margin-top:20px"><button id="accept">Check the claims</button><span class="muted" id="acceptNote"></span></div>
     </div>
   </section>
 
   <!-- 3: live -->
   <section class="card hidden" id="step3">
-    <h2>Checking</h2>
+    <p class="label">Checking</p>
+    <h2>Buying the records</h2>
     <div class="live">
       <svg class="chart" id="ring" viewBox="0 0 170 170" aria-label="Credits spent of the budget"></svg>
       <div>
-        <p class="muted" style="margin:0">Each square is a claim. Colours land as verdicts come in.</p>
+        <p class="muted" style="margin:0">One square per claim. Each takes its verdict's colour as it lands.</p>
         <div class="tiles" id="tiles"></div>
         <ul class="feed" id="feed"></ul>
       </div>
     </div>
     <div id="asks"></div>
-    <div class="row" style="margin-top:14px"><button class="stop" id="stop">Stop now</button><span class="muted" id="spent"></span></div>
+    <div class="row" style="margin-top:18px"><button class="stop" id="stop">Stop now</button><span class="muted" id="spent"></span></div>
   </section>
 
   <!-- 4: memo -->
   <section class="card hidden" id="step4">
+    <p class="label">The memo</p>
     <h2 id="company"></h2>
     <p class="muted" id="memoSub"></p>
     <div class="split">
@@ -260,9 +256,9 @@ ol.q { padding-left: 20px; margin: 6px 0 12px; } ol.q li { margin-bottom: 8px; a
     <div id="claims"></div>
     <h3>Questions for the founders</h3>
     <ol class="q" id="questions"></ol>
-    <div class="row"><button id="qyes">Approve questions</button><button class="ghost" id="qno">Don't send</button>
+    <div class="row"><button id="qyes">Approve the questions</button><button class="ghost" id="qno">Don't send</button>
       <span class="muted" id="qstate">Nothing reaches the founders until you approve.</span></div>
-    <h3>Comparable companies <span class="muted">by headcount</span></h3>
+    <h3>Comparable companies <span class="muted" style="font-family:var(--sans);font-weight:400">· by headcount</span></h3>
     <div id="comps"></div>
     <div class="receipt" id="receipt"></div>
   </section>
@@ -279,10 +275,10 @@ const V = {  // verdict -> label and colour token
   cant_verify: ["Can't verify", "--blue"], confirmed: ["Confirmed", "--green"], held: ["Held", "--grey"], not_checked: ["Not checked", "--grey"],
 };
 const ORDER = Object.keys(V);
-let runId = null, memo = null, source = null, total = 0;
+let runId = null, memo = null, source = null;
 const claimState = {};
 
-// ----- small drawing helpers -----
+// ----- drawing helpers -----
 function countUp(el, to, decimals = 0, ms = 900) {
   if (still) { el.textContent = (+to).toFixed(decimals); return; }
   const start = performance.now();
@@ -291,60 +287,60 @@ function countUp(el, to, decimals = 0, ms = 900) {
   requestAnimationFrame(tick);
 }
 function donut(svg, segments, centerBig, centerSmall) {
-  const sum = segments.reduce((a, s) => a + s.value, 0) || 1, r = 78, c = 2 * Math.PI * r;
+  const sum = segments.reduce((a, s) => a + s.value, 0) || 1, r = 80, c = 2 * Math.PI * r, gap = segments.filter((s) => s.value).length > 1 ? 3 : 0;
   let offset = 0, arcs = "";
   segments.filter((s) => s.value > 0).forEach((s, i) => {
-    const len = c * s.value / sum;
-    arcs += `<circle cx="100" cy="100" r="${r}" fill="none" stroke="${css(s.color)}" stroke-width="22"
+    const len = Math.max(0, c * s.value / sum - gap);
+    arcs += `<circle cx="100" cy="100" r="${r}" fill="none" stroke="${css(s.color)}" stroke-width="12"
       stroke-dasharray="${still ? `${len} ${c}` : `0 ${c}`}" stroke-dashoffset="${-offset}" transform="rotate(-90 100 100)"
-      data-len="${len}" style="transition: stroke-dasharray .9s cubic-bezier(.2,.8,.2,1) ${i * .12}s"><title>${esc(s.label)}: ${s.value}</title></circle>`;
-    offset += len;
+      data-len="${len}" style="transition: stroke-dasharray 1s cubic-bezier(.2,.8,.2,1) ${i * .15}s"><title>${esc(s.label)}: ${s.value}</title></circle>`;
+    offset += c * s.value / sum;
   });
-  svg.innerHTML = `<circle cx="100" cy="100" r="${r}" fill="none" stroke="${css("--soft")}" stroke-width="22"/>${arcs}
-    <text x="100" y="106" text-anchor="middle" style="font-size:34px;font-weight:700;fill:${css("--ink")}">${centerBig}</text>
-    <text x="100" y="128" text-anchor="middle" style="font-size:12.5px">${esc(centerSmall)}</text>`;
+  svg.innerHTML = `<circle cx="100" cy="100" r="${r}" fill="none" stroke="${css("--soft")}" stroke-width="12"/>${arcs}
+    <text x="100" y="108" text-anchor="middle" class="big">${centerBig}</text>
+    <text x="100" y="130" text-anchor="middle" class="cap">${esc(centerSmall)}</text>`;
   requestAnimationFrame(() => requestAnimationFrame(() =>
     svg.querySelectorAll("circle[data-len]").forEach((a) => a.setAttribute("stroke-dasharray", `${a.dataset.len} ${c}`))));
 }
 function curveChart(svg, points, budget, claims) {
-  const W = 520, H = 210, L = 34, R = 14, T = 12, B = 30;
+  const W = 520, H = 210, L = 30, R = 10, T = 14, B = 30, ink = css("--ink"), data = css("--data");
   const maxX = Math.max(budget, points[points.length - 1][0]) * 1.08 || 1, maxY = Math.max(1, claims);
   const x = (v) => L + (W - L - R) * v / maxX, y = (v) => H - B - (H - T - B) * v / maxY;
   let d = `M${x(0)},${y(points[0][1])} L${x(points[0][0])},${y(points[0][1])}`;
   points.slice(1).forEach(([b, n], i) => { d += ` L${x(b)},${y(points[i][1])} L${x(b)},${y(n)}`; });
   const area = `${d} L${x(points[points.length - 1][0])},${y(0)} L${x(0)},${y(0)} Z`;
-  const grid = [0, .5, 1].map((f) => `<line x1="${L}" x2="${W - R}" y1="${y(maxY * f)}" y2="${y(maxY * f)}" stroke="${css("--line")}"/>
-    <text x="${L - 6}" y="${y(maxY * f) + 4}" text-anchor="end">${Math.round(maxY * f)}</text>`).join("");
-  svg.innerHTML = `<defs><linearGradient id="ga" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${css("--accent2")}" stop-opacity=".35"/>
-      <stop offset="1" stop-color="${css("--accent2")}" stop-opacity="0"/></linearGradient></defs>${grid}
-    <path d="${area}" fill="url(#ga)" opacity="0" style="transition: opacity 1s .6s" class="area"/>
-    <path d="${d}" fill="none" stroke="${css("--accent2")}" stroke-width="3" stroke-linejoin="round" class="line"/>
-    ${points.map(([b, n]) => `<circle cx="${x(b)}" cy="${y(n)}" r="3.5" fill="${css("--accent2")}"><title>${b} credits: ${n} claims</title></circle>`).join("")}
-    <line x1="${x(budget)}" x2="${x(budget)}" y1="${T}" y2="${H - B}" stroke="${css("--amber")}" stroke-width="2" stroke-dasharray="5 4"/>
-    <text x="${Math.min(x(budget) + 5, W - 70)}" y="${T + 10}" style="fill:${css("--amber")}">your budget</text>
-    <text x="${W - R}" y="${H - 8}" text-anchor="end">credits → ${maxX.toFixed(0)}</text><text x="${L}" y="${H - 8}">0</text>`;
+  const grid = [0, .5, 1].map((f) => `<line x1="${L}" x2="${W - R}" y1="${y(maxY * f)}" y2="${y(maxY * f)}" stroke="${css("--line")}" ${f ? 'stroke-dasharray="2 4"' : ""}/>
+    <text x="${L - 8}" y="${y(maxY * f) + 4}" text-anchor="end">${Math.round(maxY * f)}</text>`).join("");
+  svg.innerHTML = `${grid}
+    <path d="${area}" fill="${css("--data-soft")}" opacity="0" style="transition: opacity 1s .7s" class="area"/>
+    <path d="${d}" fill="none" stroke="${data}" stroke-width="2" stroke-linejoin="round" class="line"/>
+    ${points.map(([b, n]) => `<circle cx="${x(b)}" cy="${y(n)}" r="3" fill="${css("--card")}" stroke="${data}" stroke-width="1.6"><title>${b} credits: ${n} claims</title></circle>`).join("")}
+    <line x1="${x(budget)}" x2="${x(budget)}" y1="${T - 4}" y2="${H - B}" stroke="${ink}" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="${x(budget) > W - 90 ? x(budget) - 6 : x(budget) + 6}" y="${T + 6}" text-anchor="${x(budget) > W - 90 ? "end" : "start"}" class="cap" style="fill:${ink}">your budget</text>
+    <text x="${W - R}" y="${H - 8}" text-anchor="end">${maxX.toFixed(0)} credits</text><text x="${L}" y="${H - 8}">0</text>`;
   const line = svg.querySelector(".line"), len = line.getTotalLength();
   if (!still) { line.style.strokeDasharray = len; line.style.strokeDashoffset = len; line.getBoundingClientRect();
-    line.style.transition = "stroke-dashoffset 1.2s ease"; line.style.strokeDashoffset = 0; }
+    line.style.transition = "stroke-dashoffset 1.3s ease"; line.style.strokeDashoffset = 0; }
   svg.querySelector(".area").style.opacity = 1;
 }
 function ring(spent, limit) {
-  const r = 64, c = 2 * Math.PI * r, f = Math.min(1, limit ? spent / limit : 0);
-  const color = f > .9 ? css("--red") : f > .7 ? css("--amber") : css("--accent");
-  $("ring").innerHTML = `<circle cx="85" cy="85" r="${r}" fill="none" stroke="${css("--soft")}" stroke-width="14"/>
-    <circle cx="85" cy="85" r="${r}" fill="none" stroke="${color}" stroke-width="14" stroke-linecap="round"
-      stroke-dasharray="${c * f} ${c}" transform="rotate(-90 85 85)" style="transition: stroke-dasharray .6s ease"/>
-    <text x="85" y="88" text-anchor="middle" style="font-size:28px;font-weight:700;fill:${css("--ink")}">${spent.toFixed(1)}</text>
-    <text x="85" y="108" text-anchor="middle" style="font-size:12px">of ${limit.toFixed(0)} credits</text>`;
+  const r = 66, c = 2 * Math.PI * r, f = Math.min(1, limit ? spent / limit : 0);
+  const color = f > .9 ? css("--red") : f > .7 ? css("--amber") : css("--data");
+  $("ring").innerHTML = `<circle cx="85" cy="85" r="${r}" fill="none" stroke="${css("--soft")}" stroke-width="8"/>
+    <circle cx="85" cy="85" r="${r}" fill="none" stroke="${color}" stroke-width="8"
+      stroke-dasharray="${c * f} ${c}" transform="rotate(-90 85 85)" style="transition: stroke-dasharray .7s ease, stroke .4s"/>
+    <text x="85" y="90" text-anchor="middle" class="mid">${spent.toFixed(1)}</text>
+    <text x="85" y="110" text-anchor="middle" class="cap">of ${limit.toFixed(0)} credits</text>`;
 }
 function setStep(n) {
   [1, 2, 3, 4].forEach((i) => { $("s" + i).classList.toggle("on", i === n); $("s" + i).classList.toggle("done", i < n); });
 }
+const go = (id) => { $(id).classList.remove("hidden"); $(id).scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" }); };
 
 // ----- mode -----
 fetch("/api/info").then((r) => r.json()).then((info) => {
   if (info.mode !== "live") { $("mode").classList.add("fake");
-    $("modeText").textContent = info.mode === "fake" ? "Made-up data (test)" : info.mode === "replay" ? "Replay (not live)" : "Live, recording"; }
+    $("modeText").textContent = info.mode === "fake" ? "Test data" : info.mode === "replay" ? "Replay, not live" : "Live, recording"; }
 });
 
 // ----- 1: upload -----
@@ -368,8 +364,7 @@ $("go").onclick = async () => {
     founders: $("founders").value.split(",").map((s) => s.trim()).filter(Boolean) });
   if (!res.ok) { $("err").textContent = "Couldn't start: " + (await res.text()); $("go").disabled = false; return; }
   runId = (await res.json()).run_id;
-  $("step2").classList.remove("hidden"); setStep(2);
-  $("step2").scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
+  setStep(2); go("step2");
   listen();
 };
 
@@ -385,7 +380,7 @@ function listen() {
     if (e.verdict !== undefined && e.index !== undefined) claim(e);
     if (e.kind === "settled") { ring(e.spent, e.limit); $("spent").textContent = `Last: ${e.credits.toFixed(2)} credits for ${e.endpoint}`; }
     if (e.kind === "note") feed(e.text);
-    if (e.kind === "flag") feed("⚑ " + e.text);
+    if (e.kind === "flag") feed("Flag: " + e.text);
     if (e.kind === "approval") ask(e);
     if (e.kind === "error") $("err").textContent = e.error;
     if (e.kind === "done") { $("stop").disabled = true; setTimeout(loadMemo, 300); }
@@ -398,7 +393,6 @@ function feed(text) {
 
 // ----- 2: quote -----
 function showQuote(q) {
-  total = q.claims;
   $("reading").classList.add("hidden");
   $("headline").textContent = q.headline;
   $("quoteBody").classList.remove("hidden");
@@ -408,8 +402,8 @@ function showQuote(q) {
   stats.forEach(([v, , d], i) => countUp($("qs" + i), v, d || 0));
   const toCheck = Math.max(0, q.checked_at_budget - q.settled_by_record), beyond = Math.max(0, q.claims - q.checked_at_budget);
   donut($("quoteDonut"), [
-    { value: q.settled_by_record, color: "--accent", label: "Settled by the company record" },
-    { value: toCheck, color: "--accent2", label: "Checked with your budget" },
+    { value: q.settled_by_record, color: "--ink", label: "Settled by the company record" },
+    { value: toCheck, color: "--data", label: "Checked with your budget" },
     { value: beyond, color: "--grey", label: "Beyond your budget" }], `${q.checked_at_budget}/${q.claims}`, "checked");
   curveChart($("curve"), q.curve, q.budget, q.claims);
   $("plan").innerHTML = (q.planned || []).slice(0, 6).map((p, i) => `<li style="animation-delay:${i * .06}s">${esc(p)}</li>`).join("")
@@ -417,11 +411,7 @@ function showQuote(q) {
   $("acceptNote").textContent = `Approves spending up to ${q.budget.toFixed(0)} credits.`;
   ring(0, q.budget);
 }
-$("accept").onclick = () => {
-  post(`/api/jobs/${runId}/accept`);
-  $("accept").disabled = true; $("step3").classList.remove("hidden"); setStep(3);
-  $("step3").scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
-};
+$("accept").onclick = () => { post(`/api/jobs/${runId}/accept`); $("accept").disabled = true; setStep(3); go("step3"); };
 $("stop").onclick = () => { post(`/api/jobs/${runId}/kill`); $("stop").disabled = true; feed("Stopping: no more purchases."); };
 
 // ----- 3: live tiles -----
@@ -436,7 +426,7 @@ function claim(e) {
 }
 function ask(e) {
   const box = document.createElement("div"); box.className = "ask";
-  box.innerHTML = `<p style="margin:0 0 8px"><b>Needs you:</b> ${esc(e.reason)}, up to ${e.credits.toFixed(2)} credits.</p>`;
+  box.innerHTML = `<p style="margin:0 0 10px"><b>Needs you.</b> ${esc(e.reason)}, up to ${e.credits.toFixed(2)} credits.</p>`;
   const yes = document.createElement("button"), no = document.createElement("button");
   yes.textContent = "Allow"; no.textContent = "Don't"; no.className = "ghost";
   const answer = (approve) => post(`/api/jobs/${runId}/approvals/${e.binding}`, { approve }).finally(() => box.remove());
@@ -451,9 +441,8 @@ async function loadMemo() {
   if (!res.ok) { setTimeout(loadMemo, 700); return; }
   memo = await res.json();
   const b = memo.bill, v = b.verdicts;
-  $("step4").classList.remove("hidden"); setStep(4);
-  $("step4").scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
-  $("company").textContent = `${memo.company}: the memo`;
+  setStep(4); go("step4");
+  $("company").textContent = memo.company;
   $("memoSub").textContent = `${b.claims} claims · ${b.credits.toFixed(2)} credits${b.total_inr != null ? ` · ₹${b.total_inr.toFixed(2)} with model calls` : ""}`;
 
   const shown = ["contradicted", "records_disagree", "cant_verify", "confirmed", "not_checked"].filter((k) => v[k]);
@@ -461,17 +450,20 @@ async function loadMemo() {
   $("legend").innerHTML = shown.map((k, i) => `<div style="animation: rise .4s ease ${i * .07}s both"><i style="background:${css(V[k][1])}"></i>${V[k][0]}<b id="lg${i}">0</b></div>`).join("");
   shown.forEach((k, i) => countUp($("lg" + i), v[k]));
 
-  const flagIcon = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${css("--red")}" stroke-width="2" stroke-linecap="round"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>`;
+  const flagIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${css("--red")}" stroke-width="1.8" stroke-linecap="round"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>`;
   $("flags").innerHTML = (memo.domain_flag ? `<div class="flag">${flagIcon}<div><b>Domain warning.</b> ${esc(memo.domain_flag)}</div></div>` : "")
-    + memo.instructions_ignored.map((t) => `<div class="flag">${flagIcon}<div><b>Hidden instruction in the deck, ignored:</b> "${esc(t)}"</div></div>`).join("");
+    + memo.instructions_ignored.map((t) => `<div class="flag">${flagIcon}<div><b>Hidden instruction in the deck, ignored.</b> "${esc(t)}"</div></div>`).join("");
 
   const claims = [...memo.claims].sort((a, c) => ORDER.indexOf(a.verdict) - ORDER.indexOf(c.verdict));
-  $("claims").innerHTML = claims.map((c, i) => `<div class="claim" style="animation-delay:${Math.min(i, 12) * .05}s">
-      <div class="bar" style="background:${css(V[c.verdict]?.[1] || "--grey")}"></div>
-      <div><p><span class="tag c-${c.verdict}">${V[c.verdict]?.[0] || c.verdict}${c.provisional && c.verdict === "contradicted" ? " · provisional" : ""}</span>${esc(c.claim)} <span class="muted">· p.${c.page}</span></p>
+  $("claims").innerHTML = claims.map((c, i) => {
+    const color = css(V[c.verdict]?.[1] || "--grey");
+    return `<div class="claim" style="animation-delay:${Math.min(i, 12) * .05}s">
+      <div style="background:${color}"></div>
+      <div><div class="verdict" style="color:${color}"><i style="background:${color}"></i>${V[c.verdict]?.[0] || c.verdict}${c.provisional && c.verdict === "contradicted" ? " · provisional" : ""}</div>
+        <p class="quote">“${esc(c.claim)}” <span class="muted" style="font-family:var(--sans)">p. ${c.page}</span></p>
         <p>${esc(c.reason)}</p>
-        ${c.sources.map((s) => `<p class="src">↳ ${esc(s.field)}: ${esc(s.says)} <span>(${esc((s.dated || "undated").slice(0, 10))})</span></p>`).join("")}</div>
-    </div>`).join("");
+        ${c.sources.map((s) => `<p class="src">${esc(s.field)}: ${esc(s.says)} · ${esc((s.dated || "undated").slice(0, 10))}</p>`).join("")}</div>
+    </div>`; }).join("");
 
   $("questions").innerHTML = memo.questions.map((q, i) => `<li style="animation-delay:${i * .06}s">${esc(q)}</li>`).join("") || "<li class='muted'>No questions.</li>";
   const decided = memo.questions_decision;
@@ -479,7 +471,7 @@ async function loadMemo() {
   $("qyes").disabled = $("qno").disabled = !!decided || !memo.questions.length;
 
   const comps = memo.comparables, most = Math.max(1, ...comps.map((c) => c.headcount || 0));
-  const money = (u) => u == null ? "-" : u >= 1e6 ? `$${(u / 1e6).toFixed(1)}M` : `$${Math.round(u / 1e3)}K`;
+  const money = (u) => u == null ? "–" : u >= 1e6 ? `$${(u / 1e6).toFixed(1)}M` : `$${Math.round(u / 1e3)}K`;
   $("comps").innerHTML = comps.map((c) => `<div class="comp" title="${esc(c.domain || "")}${c.record_date ? ` · record ${esc(c.record_date)}` : ""}">
       <span class="name">${esc(c.name)}</span><div class="track"><div class="fill" data-w="${100 * (c.headcount || 0) / most}"></div></div>
       <span class="num">${c.headcount ?? "?"} · ${money(c.funding_total_usd)}</span></div>`).join("") || "<p class='muted'>None at this budget.</p>";
@@ -487,8 +479,8 @@ async function loadMemo() {
 
   const a = memo.audit;
   $("receipt").innerHTML = `<span>Stopped because: ${esc(b.stopped_because)}.</span>`
-    + (a && a.matches != null ? `<span class="badge ${a.matches ? "ok" : "no"}">${a.matches ? "✓ Ledger matches the Crustdata balance" : "✗ Ledger doesn't match the balance"}</span>` : "")
-    + `<span class="badge ${b.ledger_chain_ok ? "ok" : "no"}">${b.ledger_chain_ok ? "✓ Hash chain verified" : "✗ Hash chain broken"}</span>`;
+    + (a && a.matches != null ? `<span class="check ${a.matches ? "ok" : "no"}">${a.matches ? "✓ Ledger matches the balance" : "✗ Ledger doesn't match the balance"}</span>` : "")
+    + `<span class="check ${b.ledger_chain_ok ? "ok" : "no"}">${b.ledger_chain_ok ? "✓ Hash chain verified" : "✗ Hash chain broken"}</span>`;
 }
 
 const decide = async (approve) => {
